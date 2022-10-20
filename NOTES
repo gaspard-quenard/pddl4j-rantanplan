@@ -1,0 +1,53 @@
+To compile without running tests and style checks::
+
+$ ./gradlew build -PnoCheckStyle -PnoTest
+
+Exemple to launch the FF planner:
+
+$ java -cp build/libs/pddl4j-4.0.0.jar fr.uga.pddl4j.planners.statespace.FF benchmarks/blocksworld/domain.pddl benchmarks/blocksworld/p01.pddl
+
+
+To launch the Rantanplan planner:
+
+java -cp build/libs/pddl4j-4.0.0.jar fr.uga.pddl4j.planners.rantanplan.Rantanplan benchmarks/blocksworld/domain.pddl benchmarks/blocksworld/p01.pddl
+
+
+To undersand the rantanplan planner, paper + thèse + code (rantanplan-public)
+
+
+SMT solver -> cvc5
+cvc5 installed in src/test/resources/SMT_solvers
+Building cvc5 Java API: https://cvc5.github.io/docs/cvc5-1.0.0/api/java/java.html
+
+Need to add the wrapper as a dependancies in the build.gradle:
+dependancies: {
+    ...
+    // cvc5 SMT solver
+    implementation files('src/test/resources/SMT_solvers/cvc5/build/install/share/java/cvc5.jar')
+}
+
++ Need to add shared library to java.library.path
+
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/gaspard/LIG/Code/pddl4j-rantanplan/src/test/resources/SMT_solvers/cvc5/build/install/lib
+
+
+To launch cvc5 as an external executable (with test.SMT containg all the formula):
+./cvc5 test.SMT --lang smt
+
+full command to test
+
+./gradlew build -PnoCheckStyle -PnoTest && java -cp build/libs/pddl4j-4.0.0.jar fr.uga.pddl4j.planners.rantanplan.Rantanplan benchmarks/blocksworld/domain.pddl benchmarks/blocksworld/p20.pddl
+
+# Now try to add numerical and precond to action
+
+# ./gradlew build -PnoCheckStyle -PnoTest && java -cp build/libs/pddl4j-4.0.0.jar fr.uga.pddl4j.planners.rantanplan.Rantanplan /home/gaspard/LIG/Code/pddl4j-rantanplan/my_benchmarks/with_numerical_and_precond/lap_planes.pddl /home/gaspard/LIG/Code/pddl4j-rantanplan/my_benchmarks/with_numerical_and_precond/planes_0.pddl
+
+
+
+./gradlew build -PnoCheckStyle -PnoTest && java -cp build/libs/pddl4j-4.0.0.jar fr.uga.pddl4j.planners.rantanplan.Rantanplan src/test/resources/benchmarks/hddl/ipc2020/miconic/domain.hddl src/test/resources/benchmarks/hddl/ipc2020/miconic/p01.pddl
+
+
+
+POUR LANCER TREE REX
+
+./gradlew build -PnoCheckStyle -PnoTest && java -cp build/libs/pddl4j-4.0.0.jar fr.uga.pddl4j.planners.treerex_smt.TreeRex src/test/resources/benchmarks/hddl/ipc2020/miconic/domain.hddl src/test/resources/benchmarks/hddl/ipc2020/miconic/p02.hddl
