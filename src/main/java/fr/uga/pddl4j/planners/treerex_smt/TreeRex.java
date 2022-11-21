@@ -206,10 +206,10 @@ public class TreeRex extends AbstractSTNPlanner {
     @Override
     public Plan solve(Problem problem) {
 
-
+        boolean useSASplus = false;
 
         long beginEncodeTime = System.currentTimeMillis();
-        TreeRexEncoder encoder = new TreeRexEncoder(problem, true);
+        TreeRexEncoder encoder = new TreeRexEncoder(problem, useSASplus);
 
         // Encode 
         // encoder.Encode();
