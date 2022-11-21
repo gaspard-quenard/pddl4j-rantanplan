@@ -1,0 +1,65 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome file</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+</head>
+
+<body class="stackedit">
+  <div class="stackedit__html"><h1 id="generating-sas-with-pddl4j">Generating SAS+ with PDDL4J</h1>
+<p>First, put <code>Strips2SasPlus.java</code> somewhere into your PDDL4J project.<br>
+Then, after parsing and instantiating your problem with</p>
+<pre><code>final  ParsedProblem  parsedProblem = parser.parse(domainPath, problemPath);
+final  HTNProblem  problem = new  HTNProblem(parsedProblem);
+problem.instantiate();
+</code></pre>
+<p>you need to call the following sequence:</p>
+<ol>
+<li><code>Strips2SasPlus.callH2Hheuristic(problem);</code><br>
+This function populates a <code>heuristicTable</code> hash map, containing weights for all possible pairs of grounded predicates. If the value accessed by a pair <code>== Integer.MAX_VALUE</code> it means that the pair is mutex, or that the two predicates can’t be true at the same time. If the value is <code>&lt; Integer.MAX_VALUE</code>, it means that the pair is non-mutex.</li>
+<li><code>Strips2SasPlus.createFactSets(problem);</code><br>
+While the <code>callH2Heuristic()</code> concludes if all possible pairs are mutex or not, to make  SAS+ variables, we need <strong>sets</strong> of mutex predicates. Meaning, we need something like <code>{at(r1, loc1), at(r1, loc2), at(r1, loc3)}</code> rather than <code>{at(r1, loc1), at(r1, loc2)} {at(r1, loc1), at(r1, loc3)} ...</code>. But evaluating all of the generated mutex pairs and constructing exhaustive sets is very computationally expensive. Therefore, <code>createFactSets()</code> is a probabilistic function that randomly takes <code>k = some_factor * number_of_predicates</code> candidate predicates, and constructs mutex sets out of them. This algorithm continues until either timeout (currently set to 1 minute) or <code>k</code> random mutex sets has been created.<br>
+Both factor and timeout can be changed by editing <code>timeout</code> and <code>fVal</code> variables in the <code>Strips2SasPlus.java</code>.</li>
+<li><code>Strips2SasPlus.greedyCovering(problem);</code><br>
+Finally, we go through the generated mutex sets and attempt to construct the biggest possible mutex cliques that cover all of the grounded predicates exactly once (NOTE: it may be interesting to try and overcover predicates. i.e. have multiple mutex cliques containing same predicate. To be seen in the future). These generated cliques are domains of our variables.</li>
+</ol>
+<h2 id="output">Output</h2>
+<p><code>greedyCovering()</code> will populate <code>Strips2SasPlus.cliques</code> list, where each item is a collection of mutually exclusive predicate ids.</p>
+<p>The following example will print out cliques in your console:</p>
+<pre><code>Strips2SasPlus.callH2Hheuristic(problem);
+Strips2SasPlus.createFactSets(problem);
+Strips2SasPlus.greedyCovering(problem);
+
+System.out.println("------------");
+
+List&lt;Collection&lt;Integer&gt;&gt; cliques = Strips2SasPlus.cliques;
+for (Collection&lt;Integer&gt; clique  :  cliques) {
+	System.out.println("Clique: ");
+	for (Integer  i  :  clique) {
+	   Fluent  f = problem.getFluents().get(i);
+	   System.out.println(UtilFunctions.debug_fluentToString(f, problem));
+	}
+}
+</code></pre>
+<pre><code>static  String  debug_fluentToString(Fluent  f, HTNProblem  problem) {
+	String  out = "";
+	String  symbol = problem.getPredicateSymbols().get(f.getSymbol());
+	out += symbol + "(";
+	int[] args = f.getArguments();
+	for (int  i = 0; i &lt; args.length; i++) {
+		out += problem.getConstantSymbols().get(args[i]) + " ";
+	}
+	out += ")";
+	return  out;
+}
+</code></pre>
+<h2 id="bibliography">Bibliography</h2>
+<p>Efficient Representations and Conversions of Planning Problems, 2014, Toropila, D.<br>
+Fact-alternating mutex groups for classical planning, 2018, Fiser, D., and Komenda, A.</p>
+</div>
+</body>
+
+</html>

@@ -2,7 +2,9 @@ package fr.uga.pddl4j.planners.treerex_smt;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Vector;
 
 import org.apache.logging.log4j.LogManager;
@@ -63,7 +65,7 @@ public class TreeRex extends AbstractSTNPlanner {
      * @param clauses
      * @throws IOException
      */
-    void writeIntoSMTFile(Vector<String> allVariables, String clauses) throws IOException {
+    void writeIntoSMTFile(Vector<String> allBoolVariables, Vector<String> allIntVariables, String clauses) throws IOException {
         BufferedWriter writer;
 
         writer = new BufferedWriter(new FileWriter(this.filenameSMT));
@@ -72,8 +74,11 @@ public class TreeRex extends AbstractSTNPlanner {
         writer.write("(set-option :produce-models true)\n");
 
         // Declare all the variables
-        for (String var: allVariables) {
+        for (String var: allBoolVariables) {
             writer.write("(declare-const " + var + " Bool)\n");
+        }
+        for (String var: allIntVariables) {
+            writer.write("(declare-const " + var + " Int)\n");
         }
 
         // Write the clauses
@@ -130,6 +135,15 @@ public class TreeRex extends AbstractSTNPlanner {
         SequentialPlan p = new SequentialPlan();
         int numberBlankActions = 0;
 
+        // Create an array to store all the actions used for the plan
+        // We cannot directly put the actions into the plan since the 
+        // actions returned by the SMT solver are not necesserely in the correct order
+        int size_plan = encoder.getLastLayerSize();
+        Action[] planActions = new Action[size_plan];
+        for (int i = 0; i < size_plan; i++) {
+            planActions[i] = null;
+        }
+
         String[] values = outputSMTSolver.split("\n");
         for (int i = 0; i < values.length; i++) {
             String s = values[i];
@@ -163,12 +177,20 @@ public class TreeRex extends AbstractSTNPlanner {
                                 if (encoder.prettyDisplayAction(action, problem).equals(nameActionMethodOrPredicate)) {
                                     int timeStep = Integer.valueOf(words[1].split("__")[1].split("_")[1]);
                                     // LOGGER.info(encoder.prettyDisplayAction(action, problem) + " " + timeStep + "\n");
-                                    p.add(timeStep, action);
+                                    planActions[timeStep] = action;
                                 }
                             }
                         }
                     }
                 }
+            }
+        }
+    
+        int timeStep = 0;
+        for (Action action: planActions) {
+            if (action != null) {
+                p.add(timeStep, action);
+                timeStep++;
             }
         }
         return p;
@@ -184,8 +206,10 @@ public class TreeRex extends AbstractSTNPlanner {
     @Override
     public Plan solve(Problem problem) {
 
+
+
         long beginEncodeTime = System.currentTimeMillis();
-        TreeRexEncoder encoder = new TreeRexEncoder(problem);
+        TreeRexEncoder encoder = new TreeRexEncoder(problem, true);
 
         // Encode 
         // encoder.Encode();
@@ -193,12 +217,13 @@ public class TreeRex extends AbstractSTNPlanner {
         LOGGER.info("Encode layer 0\n");
 
         String clauses = encoder.encodeFirstLayer();
-        Vector<String> allVariables = encoder.getAllVariables(); 
+        Vector<String> allBoolVariables = encoder.getAllBoolVariables(); 
+        Vector<String> allIntVariables = encoder.getAllIntVariables(); 
         int layerIdx = 0;
 
         // Write those clause and variables to a file 
         try {
-            writeIntoSMTFile(allVariables, clauses);
+            writeIntoSMTFile(allBoolVariables, allIntVariables, clauses);
         } catch (IOException e) {
             // TODO Auto-generated catch block
             e.printStackTrace();
@@ -210,7 +235,8 @@ public class TreeRex extends AbstractSTNPlanner {
 
         // Try to solve the SMT file
         long beginSolveTime = System.currentTimeMillis();
-        LOGGER.info("Launch solver\n");
+        int totalNumberVariables = allIntVariables.size() + allBoolVariables.size();
+        LOGGER.info("Launch solver (number variables: " + totalNumberVariables + " number clauses: " + clauses.split("\n").length + "\n");
         String responseSolver = executeSMTSolverOnFile();
         long endSolveTime = System.currentTimeMillis();
         this.getStatistics()
@@ -239,11 +265,12 @@ public class TreeRex extends AbstractSTNPlanner {
 
             // Get the new clauses
             clauses = encoder.encodeNextLayer(layerIdx);
-            allVariables = encoder.getAllVariables();
+            allBoolVariables = encoder.getAllBoolVariables();
+            allIntVariables = encoder.getAllIntVariables();
 
             // Write the clauses and variables to a file
             try {
-                writeIntoSMTFile(allVariables, clauses);
+                writeIntoSMTFile(allBoolVariables, allIntVariables, clauses);
             } catch (IOException e) {
                 // TODO Auto-generated catch block
                 e.printStackTrace();
@@ -254,7 +281,8 @@ public class TreeRex extends AbstractSTNPlanner {
                     .setTimeToEncode(this.getStatistics().getTimeToEncode() + (endEncodeTime - beginEncodeTime));
 
             beginSolveTime = System.currentTimeMillis();
-            LOGGER.info("Launch solver\n");
+            totalNumberVariables = allIntVariables.size() + allBoolVariables.size();
+            LOGGER.info("Launch solver (number variables: " + totalNumberVariables + " number clauses: " + clauses.split("\n").length + ")\n");
             responseSolver = executeSMTSolverOnFile();
             endSolveTime = System.currentTimeMillis();
             this.getStatistics()

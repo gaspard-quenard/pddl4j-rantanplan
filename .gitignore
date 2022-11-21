@@ -49,3 +49,11 @@ Thumbs.db
 
 #gradle
 .gradle/
+
+# benchmarks
+benchmarks/
+my_benchmarks/
+*.plan
+*.csv
+*.png
+*.SMT
