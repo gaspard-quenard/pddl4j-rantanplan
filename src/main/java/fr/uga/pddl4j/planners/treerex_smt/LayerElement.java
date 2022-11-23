@@ -1,5 +1,6 @@
 package fr.uga.pddl4j.planners.treerex_smt;
 
+import java.util.List;
 import java.util.Vector;
 import java.util.function.Predicate;
 
@@ -27,11 +28,16 @@ public class LayerElement {
     private Vector<Fluent> positiveFluent;
     private Vector<Fluent> negativeFluent;
 
+    private Vector<List<Integer>> cliques;
+    private Vector<List<Integer>> negativeCliques;
+
     public LayerElement() {
         this.actions = new Vector<Action>();
         this.reductions = new Vector<Method>();
         this.positiveFluent = new Vector<Fluent>();
         this.negativeFluent = new Vector<Fluent>();
+        this.cliques = new Vector<List<Integer>>();
+        // this.negativeCliques = new Vector<List<Integer>>();
         this.containsBlankAction = false;
     }
 
@@ -59,6 +65,19 @@ public class LayerElement {
         }
     }
 
+    public void addClique(List<Integer> clique) {
+        if (!this.cliques.contains(clique)) {
+            this.cliques.add(clique);
+        }
+    }
+
+    // public void addNegativeFluentClique(List<Integer> clique) {
+    //     if (!this.negativeCliques.contains(clique)) {
+    //     this.negativeCliques.add(clique);
+    //     }
+    // }
+
+
     public void addBlankAction() {
         this.containsBlankAction = true;
     }
@@ -74,6 +93,25 @@ public class LayerElement {
     public Vector<Method> getReductions() {
         return this.reductions;
     }
+
+    public Vector<Fluent> getPositivesFluents() {
+        return this.positiveFluent;
+    }
+
+
+    public Vector<Fluent> getNegativesFluents() {
+        return this.negativeFluent;
+    }
+
+
+    public Vector<List<Integer>> getFluentCliques() {
+        return this.cliques;
+    }
+
+
+    // public Vector<List<Integer>> getNegativesFluentCliques() {
+    //     return this.negativeCliques;
+    // }
 
     public int computeNumberChildren() {
 

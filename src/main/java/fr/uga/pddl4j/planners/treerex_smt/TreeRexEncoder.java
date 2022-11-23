@@ -58,18 +58,88 @@ public class TreeRexEncoder {
         this.useSASplus = useSASplus;
 
         if (useSASplus) {
-            Strips2SasPlus.callH2Hheuristic(problem);
-            Strips2SasPlus.createFactSets(problem);
-            Strips2SasPlus.greedyCovering(problem);
+
+            String domainName = problem.getParsedProblem().getProblemName().getValue(); // There is a bug, and the domain name is given by the method getProblemName()
+
+            List<Collection<Integer>> cliques;
+            // Since we know the cliques for gripper, let's calculate them here
+            if (domainName.equals("gripper")) {
+                cliques = new ArrayList<>(); 
+                // For the gripper there are the following cliques:
+                // Clique 0 -> all fluent which carry_ball<idxball>_left + carry_free_left
+                // Clique 1 -> all fluent which carry_ball<idxball>_right + carry_free_right
+                // Clique 2 -> robby-at rooma + robby-at roomb
+                // Clique i for i in (3:num_ball+3) -> fluent_at_ball<i>_rooma + fluent_at_ball<i>_roomb
+
+                // First, determinate the number of balls
+                int numberBalls = 0;
+                for (String obj: problem.getConstantSymbols()) {
+                    if (obj.startsWith("ball")) {
+                        numberBalls++;
+                    }
+                }
+
+                // Clique which indicate if the robot carry a ball with left hand
+                List<Integer> cliqueCarryBallLeft = new ArrayList<>();
+                cliques.add(cliqueCarryBallLeft);
+
+                // Clique which indicate if the robot carry a ball with right hand
+                List<Integer> cliqueBallRight = new ArrayList<>();
+                cliques.add(cliqueBallRight);
+
+                // Clique which indicate in which room the robot is
+                List<Integer> cliqueRoomRobot = new ArrayList<>();
+                cliques.add(cliqueRoomRobot);
+
+                // Initialize the number of cliques
+                for (int i = 0; i < numberBalls; i++) {
+                    List<Integer> cliqueBall = new ArrayList<>();
+                    cliques.add(cliqueBall);
+                }
+            
+                // Iterate over all fluent and check in which clique this fluent correspond
+                for (int i = 0; i < this.factsSize; i++) {
+                    Fluent f = this.problem.getFluents().get(i);
+                        String fluentString = prettyDisplayFluent(f, problem).substring(7);
+                        // Add it to the correct clique
+                        if (fluentString.endsWith("_left")) {
+                            cliques.get(0).add(i);
+                        }
+                        else if (fluentString.endsWith("_right")) {
+                            cliques.get(1).add(i);
+                        }
+                        else if (fluentString.startsWith("at-robby")) {
+                            cliques.get(2).add(i);
+                        }
+                        else if (fluentString.startsWith("at_ball")) { 
+                            String stringidxBall = fluentString.substring("at_ball".length());
+                            stringidxBall = stringidxBall.substring(0, stringidxBall.indexOf('_'));
+                            // The end of the string should be the next _
+                            int idxBall = Integer.parseInt(stringidxBall); // The index of ball start at 1
+                            cliques.get(2 + idxBall).add(i);
+                        }
+                        else {
+                            System.out.println("--- ERROR ----");
+                        }
+                }
+            }
+
+            else {
+                Strips2SasPlus.callH2Hheuristic(problem);
+                Strips2SasPlus.createFactSets(problem);
+                Strips2SasPlus.greedyCovering(problem);
+                cliques = Strips2SasPlus.cliques;
+            }
 
             // Get only the cliques which have more than one elements
             this.treerex_cliques = new ArrayList<>();
 
             // Some debugging informations
             System.out.println("------------");
-            List<Collection<Integer>> cliques = Strips2SasPlus.cliques;
+            Integer idxClique = 0;
             for (Collection<Integer> clique : cliques) {
-                System.out.println("Clique: ");
+                System.out.println("Clique " + idxClique + ": ");
+                idxClique++;
                 for (Integer i : clique) {
                     Fluent f = problem.getFluents().get(i);
                     System.out.println(prettyDisplayFluent(f, problem));
@@ -145,8 +215,6 @@ public class TreeRexEncoder {
         return fluentToDisplay.toString();
     }
 
-
-
     /**
      * Return a string containing a clique fluent in easily readable format
      * 
@@ -209,8 +277,10 @@ public class TreeRexEncoder {
                     if (this.problem.getInitialState().getPositiveFluents().get(idxFluent)) {
                         Fluent f = this.problem.getFluents().get(idxFluent);
                         // var = addLayerAndPos(prettyDisplayCliqueFluent(f, problem), 0, 0);
-                        var = addLayerAndPos(prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem), 0, 0);
+                        var = addLayerAndPos(prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem),
+                                0, 0);
                         addToAllVariables(var);
+                        this.layers.get(0).layerElements.get(0).addClique(clique);
                         constrainsInitState
                                 .append("(assert (= " +
                                         var
@@ -307,7 +377,8 @@ public class TreeRexEncoder {
 
     /**
      * Rule 10: A fact p holds at some position i if and only if it also holds
-     *  at its first child position at the next hierarchical layer.
+     * at its first child position at the next hierarchical layer.
+     * 
      * @param layerIdx Idx of the current layer
      * @return
      */
@@ -320,40 +391,134 @@ public class TreeRexEncoder {
             int childLayerElm = this.layers.get(layerIdx).n.get(layerElm);
 
             if (this.useSASplus) {
-                for (List<Integer> clique : this.treerex_cliques) {
+                for (List<Integer> clique : this.layers.get(layerIdx).layerElements.get(layerElm).getFluentCliques()) {
+                    // for (List<Integer> clique : this.treerex_cliques) {
 
-                    String varClique = addLayerAndPos(prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem), layerIdx, layerElm);
+                    Fluent f = this.problem.getFluents().get(this.treerex_cliques.indexOf(clique));
 
-                    String varCliqueInChildLayer = addLayerAndPos(prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem), layerIdx + 1,
+                    String varClique = addLayerAndPos(
+                            prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem), layerIdx,
+                            layerElm);
+
+                    String varCliqueInChildLayer = addLayerAndPos(
+                            prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem), layerIdx + 1,
                             childLayerElm);
 
                     addToAllVariables(varClique);
                     addToAllVariables(varCliqueInChildLayer);
+                    this.layers.get(layerIdx + 1).layerElements.get(childLayerElm).addClique(clique);
 
                     constrainsDescendants.append("(assert (= " + varClique + " " + varCliqueInChildLayer + "))\n");
                 }
             }
-            for (int i = 0; i < this.factsSize; i++) {
-                if (!this.useSASplus || !fluentIsClique(i)) {
-                    Fluent f = this.problem.getFluents().get(i);
-                    String varFluent = addLayerAndPos(prettyDisplayFluent(f, problem), layerIdx, layerElm);
-                    String varFluentInChildLayer = addLayerAndPos(prettyDisplayFluent(f, problem), layerIdx + 1,
-                            childLayerElm);
-                    addToAllVariables(varFluent);
-                    addToAllVariables(varFluentInChildLayer);
-                    constrainsDescendants.append("(assert (=> " + varFluent + " " + varFluentInChildLayer + "))\n");
-                    constrainsDescendants
-                            .append("(assert (=> " + varFluentInChildLayer + " " + varFluent + "))\n");
-                }
+            // if (this.useSASplus) {
+            // for (List<Integer> clique : this.treerex_cliques) {
+
+            // String varClique =
+            // addLayerAndPos(prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique),
+            // problem), layerIdx, layerElm);
+
+            // String varCliqueInChildLayer =
+            // addLayerAndPos(prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique),
+            // problem), layerIdx + 1,
+            // childLayerElm);
+
+            // addToAllVariables(varClique);
+            // addToAllVariables(varCliqueInChildLayer);
+
+            // constrainsDescendants.append("(assert (= " + varClique + " " +
+            // varCliqueInChildLayer + "))\n");
+            // }
+            // }
+            // Get all facts stored in the previous layer
+            for (Fluent f : this.layers.get(layerIdx).layerElements.get(layerElm).getPositivesFluents()) {
+                // for (int i = 0; i < this.factsSize; i++) {
+                // if (!this.useSASplus || !fluentIsClique(i)) {
+                // Fluent f = this.problem.getFluents().get(i);
+                String varFluent = addLayerAndPos(prettyDisplayFluent(f, problem), layerIdx, layerElm);
+                String varFluentInChildLayer = addLayerAndPos(prettyDisplayFluent(f, problem), layerIdx + 1,
+                        childLayerElm);
+                addToAllVariables(varFluent);
+                addToAllVariables(varFluentInChildLayer);
+                this.layers.get(layerIdx + 1).layerElements.get(childLayerElm).addPositiveFluent(f);
+                constrainsDescendants.append("(assert (=> " + varFluent + " " + varFluentInChildLayer + "))\n");
+                constrainsDescendants
+                        .append("(assert (=> " + varFluentInChildLayer + " " + varFluent + "))\n");
+                // }
+            }
+            for (Fluent f : this.layers.get(layerIdx).layerElements.get(layerElm).getNegativesFluents()) {
+                // for (int i = 0; i < this.factsSize; i++) {
+                // if (!this.useSASplus || !fluentIsClique(i)) {
+                // Fluent f = this.problem.getFluents().get(i);
+                String varFluent = addLayerAndPos(prettyDisplayFluent(f, problem), layerIdx, layerElm);
+                String varFluentInChildLayer = addLayerAndPos(prettyDisplayFluent(f, problem), layerIdx + 1,
+                        childLayerElm);
+                addToAllVariables(varFluent);
+                addToAllVariables(varFluentInChildLayer);
+                this.layers.get(layerIdx + 1).layerElements.get(childLayerElm).addNegativeFluent(f);
+                constrainsDescendants.append("(assert (=> " + varFluent + " " + varFluentInChildLayer + "))\n");
+                constrainsDescendants
+                        .append("(assert (=> " + varFluentInChildLayer + " " + varFluent + "))\n");
+                // }
             }
         }
 
         return constrainsDescendants.toString();
     }
 
+    // private String rule10(int layerIdx) {
+
+    // int numberElementsInLayer = this.layers.get(layerIdx).layerElements.size();
+    // StringBuilder constrainsDescendants = new StringBuilder();
+    // constrainsDescendants.append("; rule 10: A fact also holds at its first child
+    // position\n");
+    // for (int layerElm = 0; layerElm < numberElementsInLayer; layerElm++) {
+    // int childLayerElm = this.layers.get(layerIdx).n.get(layerElm);
+
+    // if (this.useSASplus) {
+    // for (List<Integer> clique : this.treerex_cliques) {
+
+    // String varClique =
+    // addLayerAndPos(prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique),
+    // problem), layerIdx, layerElm);
+
+    // String varCliqueInChildLayer =
+    // addLayerAndPos(prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique),
+    // problem), layerIdx + 1,
+    // childLayerElm);
+
+    // addToAllVariables(varClique);
+    // addToAllVariables(varCliqueInChildLayer);
+
+    // constrainsDescendants.append("(assert (= " + varClique + " " +
+    // varCliqueInChildLayer + "))\n");
+    // }
+    // }
+    // for (int i = 0; i < this.factsSize; i++) {
+    // if (!this.useSASplus || !fluentIsClique(i)) {
+    // Fluent f = this.problem.getFluents().get(i);
+    // String varFluent = addLayerAndPos(prettyDisplayFluent(f, problem), layerIdx,
+    // layerElm);
+    // String varFluentInChildLayer = addLayerAndPos(prettyDisplayFluent(f,
+    // problem), layerIdx + 1,
+    // childLayerElm);
+    // addToAllVariables(varFluent);
+    // addToAllVariables(varFluentInChildLayer);
+    // constrainsDescendants.append("(assert (=> " + varFluent + " " +
+    // varFluentInChildLayer + "))\n");
+    // constrainsDescendants
+    // .append("(assert (=> " + varFluentInChildLayer + " " + varFluent + "))\n");
+    // }
+    // }
+    // }
+
+    // return constrainsDescendants.toString();
+    // }
+
     /**
      * Rule 11: If an action occurs at some position i, then it will also occur
      * at its first child position at the next hierarchical layer.
+     * 
      * @param layerIdx Idx of the current layer
      * @return
      */
@@ -400,6 +565,7 @@ public class TreeRexEncoder {
     /**
      * Rule 12: If an action occurs at some position i, then all further child
      * positions at the next layer will contain a blank element.
+     * 
      * @param layerIdx Index of the current layer
      * @return
      */
@@ -452,6 +618,18 @@ public class TreeRexEncoder {
         return constrainsRule12.toString();
     }
 
+    /**
+     * Rule 13, 14, 15:
+     * - Rule 13: If a reduction occurs at some position i, then it implies some
+     * valid combination of its subtasks at the next layer. Reduction to action
+     * - Rule 14: If a reduction occurs at some position i, then it implies some
+     * valid combination of its subtasks at the next layer. Reduction to methods
+     * - Rule 15: Any positions j at the next layer which remain undefined by an
+     * occurring reduction are filled with blank symbols.
+     * 
+     * @param layerIdx Index of the current layer
+     * @return
+     */
     private String rule13_14_15(int layerIdx) {
         StringBuilder constrainsRule13_14_15 = new StringBuilder();
         constrainsRule13_14_15
@@ -480,7 +658,7 @@ public class TreeRexEncoder {
                     constrainsRule13_14_15.append(
                             "(assert (=> " + varMethod + " ");
 
-                    // RULE 14 Reduction to actions
+                    // RULE 13 Reduction to actions
                     if (this.problem.getTasks().get(subtask).isPrimtive()) {
                         // Get the action which accomplish the method
                         Action a = this.problem.getActions().get(this.problem.getTaskResolvers().get(subtask).get(0));
@@ -527,6 +705,13 @@ public class TreeRexEncoder {
         return constrainsRule13_14_15.toString();
     }
 
+    /**
+     * Rule 16: To find a plan after n layers, we must ensure that all the positions
+     * of the last (i.e. the current) hierarchical layer n must be primitive.
+     * 
+     * @param layerIdx Index of the current layer
+     * @return
+     */
     private String rule16(int layerIdx) {
         StringBuilder constrainsRule16 = new StringBuilder();
         constrainsRule16.append("; All position of the current layer must be primitive\n");
@@ -553,9 +738,9 @@ public class TreeRexEncoder {
         for (int idxElmLayer = 0; idxElmLayer < numberElementsInLayer; idxElmLayer++) {
             universalConstrains.append("; For element " + idxElmLayer + "/" + (numberElementsInLayer - 1) + "\n");
 
-            Vector<Action> availableActionForThisLayerAndPos = this.layers.get(layerIdx).layerElements.get(idxElmLayer)
+            Vector<Action> availableActionsForThisLayerAndPos = this.layers.get(layerIdx).layerElements.get(idxElmLayer)
                     .getActions();
-            int nbAction = availableActionForThisLayerAndPos.size();
+            int nbAction = availableActionsForThisLayerAndPos.size();
 
             // Rule 5
             // Get all actions available for this layer elements
@@ -580,9 +765,13 @@ public class TreeRexEncoder {
                         for (Integer idxFluent : clique) {
                             if (action.getPrecondition().getPositiveFluents().get(idxFluent)) {
                                 Fluent f = this.problem.getFluents().get(idxFluent);
-                                // var = addLayerAndPos(prettyDisplayCliqueFluent(f, problem), layerIdx, idxElmLayer);
-                                var = addLayerAndPos(prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem), layerIdx, idxElmLayer);
+                                // var = addLayerAndPos(prettyDisplayCliqueFluent(f, problem), layerIdx,
+                                // idxElmLayer);
+                                var = addLayerAndPos(
+                                        prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem),
+                                        layerIdx, idxElmLayer);
                                 addToAllVariables(var);
+                                this.layers.get(layerIdx).layerElements.get(idxElmLayer).addClique(clique);
                                 universalConstrains
                                         .append("(= " +
                                                 var
@@ -591,9 +780,14 @@ public class TreeRexEncoder {
                             }
                             if (action.getPrecondition().getNegativeFluents().get(idxFluent)) {
                                 Fluent f = this.problem.getFluents().get(idxFluent);
-                                // var = addLayerAndPos(prettyDisplayCliqueFluent(f, problem), layerIdx, idxElmLayer);
-                                var = addLayerAndPos(prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem), layerIdx, idxElmLayer);
+                                // var = addLayerAndPos(prettyDisplayCliqueFluent(f, problem), layerIdx,
+                                // idxElmLayer);
+                                var = addLayerAndPos(
+                                        prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem),
+                                        layerIdx, idxElmLayer);
                                 addToAllVariables(var);
+                                // this.layers.get(layerIdx).layerElements.get(idxElmLayer).addClique(clique);
+                                // // TODO NOT SURE HERE...
                                 universalConstrains
                                         .append("(not (= " +
                                                 var
@@ -613,12 +807,14 @@ public class TreeRexEncoder {
                             String fluentVar = prettyDisplayFluent(f, problem);
                             String varFluent = addLayerAndPos(fluentVar, layerIdx, idxElmLayer);
                             addToAllVariables(varFluent);
+                            this.layers.get(layerIdx).layerElements.get(idxElmLayer).addPositiveFluent(f);
                             universalConstrains.append(varFluent + " ");
                         }
                         if (action.getPrecondition().getNegativeFluents().get(i)) {
                             String fluentVar = prettyDisplayFluent(f, problem);
                             String varFluent = addLayerAndPos(fluentVar, layerIdx, idxElmLayer);
                             addToAllVariables(varFluent);
+                            this.layers.get(layerIdx).layerElements.get(idxElmLayer).addNegativeFluent(f);
                             universalConstrains
                                     .append("( not " + varFluent + " ) ");
                         }
@@ -638,9 +834,13 @@ public class TreeRexEncoder {
                         for (Integer idxFluent : clique) {
                             if (action.getUnconditionalEffect().getPositiveFluents().get(idxFluent)) {
                                 Fluent f = this.problem.getFluents().get(idxFluent);
-                                // var = addLayerAndPos(prettyDisplayCliqueFluent(f, problem), layerIdx, idxElmLayer + 1);
-                                var = addLayerAndPos(prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem), layerIdx, idxElmLayer + 1);
+                                // var = addLayerAndPos(prettyDisplayCliqueFluent(f, problem), layerIdx,
+                                // idxElmLayer + 1);
+                                var = addLayerAndPos(
+                                        prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem),
+                                        layerIdx, idxElmLayer + 1);
                                 addToAllVariables(var);
+                                this.layers.get(layerIdx).layerElements.get(idxElmLayer + 1).addClique(clique);
                                 universalConstrains
                                         .append("(= " +
                                                 var
@@ -649,9 +849,15 @@ public class TreeRexEncoder {
                             }
                             if (action.getUnconditionalEffect().getNegativeFluents().get(idxFluent)) {
                                 Fluent f = this.problem.getFluents().get(idxFluent);
-                                // var = addLayerAndPos(prettyDisplayCliqueFluent(f, problem), layerIdx, idxElmLayer + 1);
-                                var = addLayerAndPos(prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem), layerIdx, idxElmLayer + 1);
+                                // var = addLayerAndPos(prettyDisplayCliqueFluent(f, problem), layerIdx,
+                                // idxElmLayer + 1);
+                                var = addLayerAndPos(
+                                        prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem),
+                                        layerIdx, idxElmLayer + 1);
                                 addToAllVariables(var);
+                                // this.layers.get(layerIdx).layerElements.get(idxElmLayer +
+                                // 1).addClique(clique); // No need to add since its a negative effect, so it
+                                // will remove the clique
                                 universalConstrains
                                         .append("(not (= " +
                                                 var
@@ -671,6 +877,7 @@ public class TreeRexEncoder {
                             String fluentVar = prettyDisplayFluent(f, problem);
                             String varFluent = addLayerAndPos(fluentVar, layerIdx, idxElmLayer + 1);
                             addToAllVariables(varFluent);
+                            this.layers.get(layerIdx).layerElements.get(idxElmLayer + 1).addPositiveFluent(f);
                             universalConstrains.append(varFluent + " ");
                             factInPositiveFluent = true; // We have an incorect state if a fact is both a positive and
                                                          // negative fluent of an action (e.g: move f0 f0 -> lift at f0
@@ -681,6 +888,7 @@ public class TreeRexEncoder {
                             String fluentVar = prettyDisplayFluent(f, problem);
                             String varFluent = addLayerAndPos(fluentVar, layerIdx, idxElmLayer + 1);
                             addToAllVariables(varFluent);
+                            this.layers.get(layerIdx).layerElements.get(idxElmLayer + 1).addNegativeFluent(f);
                             universalConstrains
                                     .append("( not " + varFluent + " ) ");
                         }
@@ -707,9 +915,13 @@ public class TreeRexEncoder {
                         for (Integer idxFluent : clique) {
                             if (method.getPrecondition().getPositiveFluents().get(idxFluent)) {
                                 Fluent f = this.problem.getFluents().get(idxFluent);
-                                // var = addLayerAndPos(prettyDisplayCliqueFluent(f, problem), layerIdx, idxElmLayer);
-                                var = addLayerAndPos(prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem), layerIdx, idxElmLayer);
+                                // var = addLayerAndPos(prettyDisplayCliqueFluent(f, problem), layerIdx,
+                                // idxElmLayer);
+                                var = addLayerAndPos(
+                                        prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem),
+                                        layerIdx, idxElmLayer);
                                 addToAllVariables(var);
+                                this.layers.get(layerIdx).layerElements.get(idxElmLayer).addClique(clique);
                                 universalConstrains
                                         .append("(= " +
                                                 var
@@ -718,9 +930,13 @@ public class TreeRexEncoder {
                             }
                             if (method.getPrecondition().getNegativeFluents().get(idxFluent)) {
                                 Fluent f = this.problem.getFluents().get(idxFluent);
-                                // var = addLayerAndPos(prettyDisplayCliqueFluent(f, problem), layerIdx, idxElmLayer);
-                                var = addLayerAndPos(prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem), layerIdx, idxElmLayer);
+                                // var = addLayerAndPos(prettyDisplayCliqueFluent(f, problem), layerIdx,
+                                // idxElmLayer);
+                                var = addLayerAndPos(
+                                        prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem),
+                                        layerIdx, idxElmLayer);
                                 addToAllVariables(var);
+                                this.layers.get(layerIdx).layerElements.get(idxElmLayer).addClique(clique);
                                 universalConstrains
                                         .append("(not (= " +
                                                 var
@@ -740,12 +956,14 @@ public class TreeRexEncoder {
                             String fluentVar = prettyDisplayFluent(f, problem);
                             var = addLayerAndPos(fluentVar, layerIdx, idxElmLayer);
                             addToAllVariables(var);
+                            this.layers.get(layerIdx).layerElements.get(idxElmLayer).addPositiveFluent(f);
                             universalConstrains.append(var + " ");
                         }
                         if (method.getPrecondition().getNegativeFluents().get(i)) {
                             String fluentVar = prettyDisplayFluent(f, problem);
                             var = addLayerAndPos(fluentVar, layerIdx, idxElmLayer);
                             addToAllVariables(var);
+                            this.layers.get(layerIdx).layerElements.get(idxElmLayer).addNegativeFluent(f);
                             universalConstrains.append("(not " + var + ") ");
                         }
                     }
@@ -781,17 +999,68 @@ public class TreeRexEncoder {
                 universalConstrains.append("(assert (=> " + varBlankAction + " " + varPrimitivePredicate + "))\n");
             }
 
+            // Rule 9
+            universalConstrains.append("; rule 9: At most one action\n");
+            for (int i = 0; i < nbAction; i++) {
+                Action a1 = availableActionsForThisLayerAndPos.get(i);
+                String varAction1 = addLayerAndPos(prettyDisplayAction(a1, problem), layerIdx, idxElmLayer);
+                addToAllVariables(varAction1);
+                for (int j = i + 1; j < nbAction; j++) {
+                    Action a2 = availableActionsForThisLayerAndPos.get(j);
+                    String varAction2 = addLayerAndPos(prettyDisplayAction(a2, problem), layerIdx, idxElmLayer);
+                    addToAllVariables(varAction2);
+                    universalConstrains.append("(assert (or (not " + varAction1 + ") (not " + varAction2 + ")))\n");
+                }
+
+                // Add the blank action as well if this elm can contain a blank action
+                if (this.layers.get(layerIdx).layerElements.get(idxElmLayer).canContainsBlankAction()) {
+                    String varBlankAction = addLayerAndPos(getBlankAction(), layerIdx, idxElmLayer);
+                    addToAllVariables(varBlankAction);
+                    universalConstrains.append("(assert (or (not " + varAction1 + ") (not " + varBlankAction + ")))\n");
+                }
+            }
+        }
+
+        // Add frame axioms (should be done after the other actions with the optimization since we need to know each fact possible at each position (which are 
+        // computed dynamically with the rules 5 and 6 (precondiation and effects of possibles actions)))
+        for (int idxElmLayer = 0; idxElmLayer < numberElementsInLayer; idxElmLayer++) {
             // Rule 8
             universalConstrains.append("; rule 8: frame axioms\n");
+
+            Vector<Action> availableActionsForThisLayerAndPos = this.layers.get(layerIdx).layerElements.get(idxElmLayer)
+                    .getActions();
+            int nbAction = availableActionsForThisLayerAndPos.size();
 
             if (idxElmLayer < numberElementsInLayer - 1) {
 
                 if (this.useSASplus) {
-                    for (List<Integer> clique : this.treerex_cliques) {
+                    // for (List<Integer> clique : this.treerex_cliques) {
 
-                        String varClique = addLayerAndPos(prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem), layerIdx, idxElmLayer);
-                        String varNextClique = addLayerAndPos(prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem), layerIdx,
-                                idxElmLayer + 1);
+                    // BIG OPTIMIZATION HERE. Instead of using the frame axioms for neighbooring
+                    // position, 'jump' to a position where the predicate can change (in the same
+                    // layer)
+                    for (List<Integer> clique : this.layers.get(layerIdx).layerElements.get(idxElmLayer)
+                            .getFluentCliques()) {
+
+                        int IdxNext = idxElmLayer + 1;
+                        // Find the next change in this clique
+                        for (int nxtLayer = idxElmLayer + 1; nxtLayer < this.layers.get(layerIdx).layerElements
+                                .size(); nxtLayer++) {
+                            if (this.layers.get(layerIdx).layerElements.get(nxtLayer).getFluentCliques()
+                                    .contains(clique)) {
+                                IdxNext = nxtLayer;
+                                break;
+                            }
+                        }
+
+                        // int IdxNext = idxElmLayer + 1;
+
+                        String varClique = addLayerAndPos(
+                                prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem), layerIdx,
+                                idxElmLayer);
+                        String varNextClique = addLayerAndPos(
+                                prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem), layerIdx,
+                                IdxNext);
                         this.addToAllVariables(varClique);
                         this.addToAllVariables(varNextClique);
                         String varPrimitivePred = addLayerAndPos(getPrimitivePredicate(), layerIdx, idxElmLayer);
@@ -801,7 +1070,7 @@ public class TreeRexEncoder {
                         // there should be only one
                         for (Integer idxFluent : clique) {
 
-                            for (Action a : availableActionForThisLayerAndPos) {
+                            for (Action a : availableActionsForThisLayerAndPos) {
                                 if (a.getUnconditionalEffect().getNegativeFluents().get(idxFluent)
                                         || a.getUnconditionalEffect().getPositiveFluents().get(idxFluent)) {
                                     String varAction = addLayerAndPos(prettyDisplayAction(a, problem), layerIdx,
@@ -829,7 +1098,7 @@ public class TreeRexEncoder {
                                 .append("(assert (=> (and " + varFluent + " (not " + varFluentNextElm + ")) ");
 
                         universalConstrains.append("(or (not " + varPrimitivePred + ") ");
-                        for (Action a : availableActionForThisLayerAndPos) {
+                        for (Action a : availableActionsForThisLayerAndPos) {
                             if (a.getUnconditionalEffect().getNegativeFluents().get(i)) {
                                 String varAction = addLayerAndPos(prettyDisplayAction(a, problem), layerIdx,
                                         idxElmLayer);
@@ -842,7 +1111,7 @@ public class TreeRexEncoder {
                                 .append("(assert (=> (and (not " + varFluent + ") " + varFluentNextElm + ") ");
 
                         universalConstrains.append("(or (not " + varPrimitivePred + ") ");
-                        for (Action a : availableActionForThisLayerAndPos) {
+                        for (Action a : availableActionsForThisLayerAndPos) {
                             if (a.getUnconditionalEffect().getPositiveFluents().get(i)) {
                                 String varAction = addLayerAndPos(prettyDisplayAction(a, problem), layerIdx,
                                         idxElmLayer);
@@ -852,27 +1121,6 @@ public class TreeRexEncoder {
                         }
                         universalConstrains.append(")))\n");
                     }
-                }
-            }
-
-            // Rule 9
-            universalConstrains.append("; rule 9: At most one action\n");
-            for (int i = 0; i < nbAction; i++) {
-                Action a1 = availableActionForThisLayerAndPos.get(i);
-                String varAction1 = addLayerAndPos(prettyDisplayAction(a1, problem), layerIdx, idxElmLayer);
-                addToAllVariables(varAction1);
-                for (int j = i + 1; j < nbAction; j++) {
-                    Action a2 = availableActionForThisLayerAndPos.get(j);
-                    String varAction2 = addLayerAndPos(prettyDisplayAction(a2, problem), layerIdx, idxElmLayer);
-                    addToAllVariables(varAction2);
-                    universalConstrains.append("(assert (or (not " + varAction1 + ") (not " + varAction2 + ")))\n");
-                }
-
-                // Add the blank action as well if this elm can contain a blank action
-                if (this.layers.get(layerIdx).layerElements.get(idxElmLayer).canContainsBlankAction()) {
-                    String varBlankAction = addLayerAndPos(getBlankAction(), layerIdx, idxElmLayer);
-                    addToAllVariables(varBlankAction);
-                    universalConstrains.append("(assert (or (not " + varAction1 + ") (not " + varBlankAction + ")))\n");
                 }
             }
         }

@@ -206,7 +206,7 @@ public class TreeRex extends AbstractSTNPlanner {
     @Override
     public Plan solve(Problem problem) {
 
-        boolean useSASplus = false;
+        boolean useSASplus = true;
 
         long beginEncodeTime = System.currentTimeMillis();
         TreeRexEncoder encoder = new TreeRexEncoder(problem, useSASplus);
@@ -252,7 +252,7 @@ public class TreeRex extends AbstractSTNPlanner {
         }
 
         // A safe variable
-        int maxLayer = 20;
+        int maxLayer = 15;
 
         while (!fileIsSatisfiable && layerIdx < maxLayer) {
 
