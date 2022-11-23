@@ -59,21 +59,24 @@ public class TreeRexEncoder {
 
         if (useSASplus) {
 
-            String domainName = problem.getParsedProblem().getProblemName().getValue(); // There is a bug, and the domain name is given by the method getProblemName()
+            String domainName = problem.getParsedProblem().getProblemName().getValue(); // There is a bug, and the
+                                                                                        // domain name is given by the
+                                                                                        // method getProblemName()
 
             List<Collection<Integer>> cliques;
             // Since we know the cliques for gripper, let's calculate them here
             if (domainName.equals("gripper")) {
-                cliques = new ArrayList<>(); 
+                cliques = new ArrayList<>();
                 // For the gripper there are the following cliques:
                 // Clique 0 -> all fluent which carry_ball<idxball>_left + carry_free_left
                 // Clique 1 -> all fluent which carry_ball<idxball>_right + carry_free_right
                 // Clique 2 -> robby-at rooma + robby-at roomb
-                // Clique i for i in (3:num_ball+3) -> fluent_at_ball<i>_rooma + fluent_at_ball<i>_roomb
+                // Clique i for i in (3:num_ball+3) -> fluent_at_ball<i>_rooma +
+                // fluent_at_ball<i>_roomb
 
                 // First, determinate the number of balls
                 int numberBalls = 0;
-                for (String obj: problem.getConstantSymbols()) {
+                for (String obj : problem.getConstantSymbols()) {
                     if (obj.startsWith("ball")) {
                         numberBalls++;
                     }
@@ -96,31 +99,27 @@ public class TreeRexEncoder {
                     List<Integer> cliqueBall = new ArrayList<>();
                     cliques.add(cliqueBall);
                 }
-            
+
                 // Iterate over all fluent and check in which clique this fluent correspond
                 for (int i = 0; i < this.factsSize; i++) {
                     Fluent f = this.problem.getFluents().get(i);
-                        String fluentString = prettyDisplayFluent(f, problem).substring(7);
-                        // Add it to the correct clique
-                        if (fluentString.endsWith("_left")) {
-                            cliques.get(0).add(i);
-                        }
-                        else if (fluentString.endsWith("_right")) {
-                            cliques.get(1).add(i);
-                        }
-                        else if (fluentString.startsWith("at-robby")) {
-                            cliques.get(2).add(i);
-                        }
-                        else if (fluentString.startsWith("at_ball")) { 
-                            String stringidxBall = fluentString.substring("at_ball".length());
-                            stringidxBall = stringidxBall.substring(0, stringidxBall.indexOf('_'));
-                            // The end of the string should be the next _
-                            int idxBall = Integer.parseInt(stringidxBall); // The index of ball start at 1
-                            cliques.get(2 + idxBall).add(i);
-                        }
-                        else {
-                            System.out.println("--- ERROR ----");
-                        }
+                    String fluentString = prettyDisplayFluent(f, problem).substring(7);
+                    // Add it to the correct clique
+                    if (fluentString.endsWith("_left")) {
+                        cliques.get(0).add(i);
+                    } else if (fluentString.endsWith("_right")) {
+                        cliques.get(1).add(i);
+                    } else if (fluentString.startsWith("at-robby")) {
+                        cliques.get(2).add(i);
+                    } else if (fluentString.startsWith("at_ball")) {
+                        String stringidxBall = fluentString.substring("at_ball".length());
+                        stringidxBall = stringidxBall.substring(0, stringidxBall.indexOf('_'));
+                        // The end of the string should be the next _
+                        int idxBall = Integer.parseInt(stringidxBall); // The index of ball start at 1
+                        cliques.get(2 + idxBall).add(i);
+                    } else {
+                        System.out.println("--- ERROR ----");
+                    }
                 }
             }
 
@@ -1021,11 +1020,15 @@ public class TreeRexEncoder {
             }
         }
 
-        // Add frame axioms (should be done after the other actions with the optimization since we need to know each fact possible at each position (which are 
-        // computed dynamically with the rules 5 and 6 (precondiation and effects of possibles actions)))
+        // Add frame axioms (should be done after the other actions with the
+        // optimization since we need to know each fact possible at each position (which
+        // are
+        // computed dynamically with the rules 5 and 6 (precondiation and effects of
+        // possibles actions)))
         for (int idxElmLayer = 0; idxElmLayer < numberElementsInLayer; idxElmLayer++) {
             // Rule 8
-            universalConstrains.append("; rule 8: frame axioms\n");
+            universalConstrains.append(
+                    "; For element " + idxElmLayer + "/" + (numberElementsInLayer - 1) + " rule 8: frame axioms\n");
 
             Vector<Action> availableActionsForThisLayerAndPos = this.layers.get(layerIdx).layerElements.get(idxElmLayer)
                     .getActions();
@@ -1085,11 +1088,25 @@ public class TreeRexEncoder {
                 }
 
                 for (int i = 0; i < this.factsSize; i++) {
-                    if (!this.useSASplus || !fluentIsClique(i)) {
-                        Fluent f = this.problem.getFluents().get(i);
+                    // if (!this.useSASplus || !fluentIsClique(i)) {
+                    Fluent f = this.problem.getFluents().get(i);
+                    if (this.layers.get(layerIdx).layerElements.get(idxElmLayer).getPositivesFluents().contains(f)) {
                         String varFluent = addLayerAndPos(prettyDisplayFluent(f, problem), layerIdx, idxElmLayer);
+
+
+                        // Find the next change of this fact
+                        int IdxNext = idxElmLayer + 1;
+
+                        for (int nxtLayer = idxElmLayer + 1; nxtLayer < this.layers.get(layerIdx).layerElements.size(); nxtLayer++) {
+                            if (this.layers.get(layerIdx).layerElements.get(nxtLayer).getPositivesFluents()
+                                    .contains(f)) {
+                                IdxNext = nxtLayer;
+                                break;
+                            }
+                        }
+
                         String varFluentNextElm = addLayerAndPos(prettyDisplayFluent(f, problem), layerIdx,
-                                idxElmLayer + 1);
+                        IdxNext);
                         String varPrimitivePred = addLayerAndPos(getPrimitivePredicate(), layerIdx, idxElmLayer);
                         addToAllVariables(varFluent);
                         addToAllVariables(varFluentNextElm);
@@ -1107,6 +1124,27 @@ public class TreeRexEncoder {
                             }
                         }
                         universalConstrains.append(")))\n");
+                    }
+                    if (this.layers.get(layerIdx).layerElements.get(idxElmLayer).getNegativesFluents().contains(f)) {
+                        String varFluent = addLayerAndPos(prettyDisplayFluent(f, problem), layerIdx, idxElmLayer);
+
+                        // Find the next change of this fact
+                        int IdxNext = idxElmLayer + 1;
+
+                        for (int nxtLayer = idxElmLayer + 1; nxtLayer < this.layers.get(layerIdx).layerElements.size(); nxtLayer++) {
+                            if (this.layers.get(layerIdx).layerElements.get(nxtLayer).getNegativesFluents()
+                                    .contains(f)) {
+                                IdxNext = nxtLayer;
+                                break;
+                            }
+                        }
+
+                        String varFluentNextElm = addLayerAndPos(prettyDisplayFluent(f, problem), layerIdx,
+                                IdxNext);
+                        String varPrimitivePred = addLayerAndPos(getPrimitivePredicate(), layerIdx, idxElmLayer);
+                        addToAllVariables(varFluent);
+                        addToAllVariables(varFluentNextElm);
+
                         universalConstrains
                                 .append("(assert (=> (and (not " + varFluent + ") " + varFluentNextElm + ") ");
 
@@ -1247,9 +1285,11 @@ public class TreeRexEncoder {
         System.out.println("Compute universal clauses");
         String universalClauses = addUniversalConstrains(layerIdx);
 
+        System.out.println("Add rule 16 (verify that there is an action at each position of the current layer)");
         String allElementsArePrimitive = rule16(layerIdx);
         // Add initial clauses, universaleClauses and rule16 to full clauses
 
+        System.out.println("Add all clauses to list clauses");
         this.allClauses.append(initialStateConstrains);
         this.allClauses.append(universalClauses);
         this.allClauses.append(allElementsArePrimitive);
@@ -1284,8 +1324,10 @@ public class TreeRexEncoder {
         String universalClauses = addUniversalConstrains(layerIdx);
 
         // Add the rule 16
+        System.out.println("Add rule 16 (verify that there is an action at each position of the current layer)");
         String allElementsArePrimitive = rule16(layerIdx);
 
+        System.out.println("Add all clauses to list clauses");
         this.allClauses.append(transitionalClauses);
         this.allClauses.append(universalClauses);
         this.allClauses.append(allElementsArePrimitive);
