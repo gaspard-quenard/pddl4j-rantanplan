@@ -6,9 +6,11 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Vector;
+import java.util.stream.Stream;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import java.util.Comparator;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -18,31 +20,35 @@ import java.io.RandomAccessFile;
 import java.io.InputStreamReader;
 
 import fr.uga.pddl4j.parser.DefaultParsedProblem;
+import fr.uga.pddl4j.plan.Hierarchy;
 import fr.uga.pddl4j.plan.Plan;
 import fr.uga.pddl4j.plan.SequentialPlan;
 import fr.uga.pddl4j.planners.AbstractPlanner;
+import fr.uga.pddl4j.planners.htn.AbstractHTNPlanner;
 import fr.uga.pddl4j.planners.htn.stn.AbstractSTNPlanner;
 import fr.uga.pddl4j.problem.DefaultProblem;
 import fr.uga.pddl4j.problem.Fluent;
 import fr.uga.pddl4j.problem.Problem;
 import fr.uga.pddl4j.problem.operator.Action;
+import fr.uga.pddl4j.problem.operator.Method;
 import fr.uga.pddl4j.util.BitVector;
 import io.github.cvc5.CVC5ApiException;
 import io.github.cvc5.Kind;
+import io.github.cvc5.Pair;
 import io.github.cvc5.Solver;
 import io.github.cvc5.Sort;
 import io.github.cvc5.Term;
 import picocli.CommandLine;
 
 @CommandLine.Command(name = "TreeRex", version = "TreeRex 0.1", description = "Solves a specified classical problem using SMT encoding.", sortOptions = false, mixinStandardHelpOptions = true, headerHeading = "Usage:%n", synopsisHeading = "%n", descriptionHeading = "%nDescription:%n%n", parameterListHeading = "%nParameters:%n", optionListHeading = "%nOptions:%n")
-public class TreeRex extends AbstractSTNPlanner {
+public class TreeRex extends AbstractHTNPlanner {
 
     /**
      * The class logger.
      */
     private static final Logger LOGGER = LogManager.getLogger(TreeRex.class.getName());
 
-    private String path_exec_VAL = "src/test/resources/validators/validate-nux";
+    private String path_exec_VAL = "src/test/resources/validators/pandaPIparser";
 
     private String filenameSMT = "test.SMT";
 
@@ -196,6 +202,176 @@ public class TreeRex extends AbstractSTNPlanner {
         return p;
     }
 
+    /**
+     * TODO Problem here because, the model does not give the action in the correct order.
+     * We must first get all the action true of the last layer, then reorder them in the correct order
+     * and then add them to the plan
+     * @param problem
+     * @param outputSMTSolver
+     * @param encoder
+     * @param layerIdx
+     * @return
+     */
+    private SequentialPlan extractPlanAndHierarchyFromSolver(Problem problem, String outputSMTSolver, TreeRexEncoder encoder, int layerIdx) {
+
+        SequentialPlan p = new SequentialPlan();
+        int numberBlankActions = 0;
+        Hierarchy hierarchy = new Hierarchy();
+
+        List<Pair<Integer, Integer>> listActionsRecorded = new ArrayList<>();
+
+        List<Integer> ActionsID = new ArrayList<>();
+        List<Integer> MethodID = new ArrayList<>();
+
+        // Add the roots tasks to the hierarchy
+        int numberRootTasks = problem.getInitialTaskNetwork().getTasks().size();
+        for (int rootTaskIdx = 0; rootTaskIdx < numberRootTasks; rootTaskIdx++) {
+            hierarchy.getRootTasks().add(rootTaskIdx);
+            hierarchy.getDecomposition().put(rootTaskIdx, new ArrayList<>());
+        }
+
+        // Create an array to store all the actions used for the plan
+        // We cannot directly put the actions into the plan since the 
+        // actions returned by the SMT solver are not necesserely in the correct order
+        int size_plan = encoder.getLastLayerSize();
+        Action[] planActions = new Action[size_plan];
+        for (int i = 0; i < size_plan; i++) {
+            planActions[i] = null;
+        }
+
+        String[] values = outputSMTSolver.split("\n");
+
+        List<String> lValues = Arrays.asList(values);
+
+        // Only keep the actions and methods which are true (do not keep blank action as well)
+        lValues = Arrays.asList(lValues.stream().filter(s -> ((s.contains(" ACTION_") || s.contains(" METHOD_")) && s.contains(" true)") && !s.contains("_Blank_"))).toArray(String[]::new));
+
+        // We also need to sort by layer and then by position
+        lValues = Arrays.asList(lValues.stream().sorted(Comparator
+                                    .comparingInt((String s) -> Integer.parseInt(s.split(" ")[1].split("__")[1].split("_")[0])) // Sort by layer
+                                    .thenComparingInt((String s) -> Integer.parseInt(s.split(" ")[1].split("__")[1].split("_")[1])) // Sort by position in layer
+                                ).toArray(String[]::new));
+
+
+
+
+
+        for (int i = 0; i < lValues.size(); i++) {
+            String s = lValues.get(i);
+
+            String[] words = s.split(" ");
+            if (words.length > 4) {
+
+                // Pass while we are not on the last layer
+                // words in the form: (define-fun METHOD_m1_go_ordering_0_f3_f0_f1_p1__3_9 () Bool false)
+                int layer = Integer.valueOf(words[1].split("__")[1].split("_")[0]);
+                int position = Integer.valueOf(words[1].split("__")[1].split("_")[1]);
+
+
+                // Now we can check if it is an action
+                String nameActionMethodOrPredicate = words[1].split("__")[0];
+                if (nameActionMethodOrPredicate.startsWith("ACTION")) {
+
+                    // Find the action object associate with it
+                    for (Action action: problem.getActions()) {
+                        if (encoder.prettyDisplayAction(action, problem).equals(nameActionMethodOrPredicate)) {
+                            int timeStep = Integer.valueOf(words[1].split("__")[1].split("_")[1]);
+                            // LOGGER.info(encoder.prettyDisplayAction(action, problem) + " " + timeStep + "\n");
+                            planActions[timeStep] = action;
+
+
+                            // Get the action ID for the decomposition
+                            int actionID = encoder.GetUniqueIDForLayerAndPosition(layer, position);
+
+                            if (layer < layerIdx) {
+
+                                // Get the parentID of this action
+                                int parentPosition = encoder.getParentPosition(layer, position);
+                                int parentLayer = layer - 1;
+                                int parentID = encoder.GetUniqueIDForLayerAndPosition(parentLayer, parentPosition);
+
+                                // If the parent ID is in the actions ID, replace the parent ID with the current action
+                                if (ActionsID.contains(parentID)) {
+                                    ActionsID.set(ActionsID.indexOf(parentID), actionID);
+                                } 
+                                else {
+                                    // Add it into the actions ID with the method which has generated this action
+                                    ActionsID.add(actionID);
+                                    MethodID.add(parentID);
+                                }
+                            } else {
+
+                                // Get the parentID of this action
+                                int parentPosition = encoder.getParentPosition(layer, position);
+                                int parentLayer = layer - 1;
+                                int parentID = encoder.GetUniqueIDForLayerAndPosition(parentLayer, parentPosition);
+
+                                // For the last layer, put the actions in order into the hierarchy
+                                // If the parent ID is in the actions ID, replace the parent ID with the current action
+                                if (ActionsID.contains(parentID)) {
+                                    ActionsID.set(ActionsID.indexOf(parentID), actionID);
+                                } 
+                                else {
+                                    // Add it into the actions ID
+                                    ActionsID.add(actionID);
+                                    MethodID.add(parentID);
+                                }
+
+                                // Now we can put into the hierarchy
+                                hierarchy.getPrimtiveTasks().put(actionID, action);
+
+                                // Put as well the decomposition of the method to this actionID
+                                hierarchy.getDecomposition().get(MethodID.get(ActionsID.indexOf(actionID))).add(actionID);
+                            }
+                            break;
+                        }
+                    }
+                }
+                else if (nameActionMethodOrPredicate.startsWith("METHOD")) {
+
+                    // Add the method to the hierarchy
+
+                    // Find the method object associate with it
+                    for (Method method: problem.getMethods()) {
+                        if (encoder.prettyDisplayMethod(method, problem).equals(nameActionMethodOrPredicate)) {  
+
+                            // Get the method ID for the decomposition
+                            int methodID = encoder.GetUniqueIDForLayerAndPosition(layer, position);
+
+                            // Now add it to our hierarchy
+                            hierarchy.getCounpoudTasks().put(methodID, method);
+                            hierarchy.getDecomposition().put(methodID, new ArrayList<>());
+
+                            // If the parent of this method is a initial task, the id of the initial task is given by the current position
+                            // of the method
+                            if (layer == 0) {
+                                // hierarchy.getDecomposition().get(position).add(methodID);
+                            }
+                            else {
+                                // Get the parent of the method
+                                int parentPosition = encoder.getParentPosition(layer, position);
+                                int parentLayer = layer - 1;
+                                int parentID = encoder.GetUniqueIDForLayerAndPosition(parentLayer, parentPosition);
+                                hierarchy.getDecomposition().get(parentID).add(methodID);
+                            }                    
+                        }
+                    }
+                }
+            }
+
+        }
+    
+        int timeStep = 0;
+        for (Action action: hierarchy.getPrimtiveTasks().values()) {
+            p.add(timeStep, action);
+            timeStep++;
+        }
+        System.out.println(problem.toString(hierarchy));
+        p.setHierarchy(hierarchy);
+        
+        return p;
+    }
+
 
     /**
      * Search a solution plan to a specific domain using a SMT solver (cvc5).
@@ -290,25 +466,27 @@ public class TreeRex extends AbstractSTNPlanner {
             if (fileIsSatisfiable(responseSolver)) {
                 System.out.println("File is satisfiable !");
                 // Extract plan from response
-                SequentialPlan plan = extractPlanFromSolver(problem, responseSolver, encoder, layerIdx);
+                SequentialPlan plan = extractPlanAndHierarchyFromSolver(problem, responseSolver, encoder, layerIdx);
 
                 // Check if plan is valid
-                // try {
-                //     LOGGER.info("Check if plan is valid with VAL...\n");
-                //     Boolean planIsValid = this.validatePlan(problem, plan);
-                //     if (planIsValid) {
-                //         LOGGER.info("Plan is valid\n");
-                //         return plan;
-                //     }
-                //     else {
-                //         LOGGER.error("Plan is not valid !\n");
-                //         return null;
-                //     }
+                try {
+                    LOGGER.info("Check if plan is valid with VAL...\n");
+                    Boolean planIsValid = this.validatePlan(problem, plan);
+                    if (planIsValid) {
+                        LOGGER.info("Plan is valid\n");
+                        return plan;
+                    }
+                    else {
+                        LOGGER.error("Plan is not valid !\n");
+                        return null;
+                    }
                     
-                // } catch (IOException e) {
-                //     // TODO Auto-generated catch block
-                //     e.printStackTrace();
-                // }
+                } catch (IOException e) {
+                    // TODO Auto-generated catch block
+                    e.printStackTrace();
+                }
+                System.out.println("Time to encode: " + this.getStatistics().getTimeToEncode() + " ms");
+                System.out.println("Time to search: " + this.getStatistics().getTimeToSearch() + " ms");
                 return plan;
             }
             else {
@@ -323,17 +501,17 @@ public class TreeRex extends AbstractSTNPlanner {
     Boolean validatePlan(Problem problem, Plan plan) throws IOException {
 
 
-        // Write the plan to tmp file
-        String filenamePlan = "tmp_plan";
+        // Write the hierarchy of the plan to a file
+        String filenamePlan = "tmp_plan.txt";
 
         BufferedWriter writer = new BufferedWriter(new FileWriter(filenamePlan));
 
-        writer.write(problem.toString(plan));
+        writer.write(problem.toString(plan.getHierarchy()));
         writer.close();
 
 
         String outputVAL = "";
-        String command = "./" + path_exec_VAL + " " + this.getDomain() + " " + this.getProblem() + " " + filenamePlan;
+        String command = "./" + this.path_exec_VAL + " --verify " + this.getDomain() + " " + this.getProblem() + " " + filenamePlan;
         try {
             Process p = Runtime.getRuntime().exec(command);
             BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()));
@@ -347,7 +525,18 @@ public class TreeRex extends AbstractSTNPlanner {
             e1.printStackTrace();
         }
 
-        return outputVAL.contains("Plan valid");
+        // Get the last line which indicate if the plan if valid
+        String[] lines = outputVAL.split("\n");
+        String lastLine = lines[lines.length - 1];
+
+        // The last line should contains the string "Plan verification result". If it is not the case, it means that 
+        // the execuate used or the arguments given are incorrect
+        if (!lastLine.contains("Plan verification result")) {
+            LOGGER.error("Cannot verify the plan given. Output returned by executable: \n" + outputVAL);
+            return false;
+        }
+        // The last line should contains the string true if the plan is correct
+        return lastLine.contains("true");
     }
 
     /**

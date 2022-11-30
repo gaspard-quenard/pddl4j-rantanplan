@@ -23,7 +23,7 @@ import java.util.Collection;
 import java.util.List;
 
 import fr.uga.pddl4j.util.BitVector;
-
+import fr.uga.pddl4j.parser.SAS_Plus.SASPlusGeneratorDomain;
 import fr.uga.pddl4j.parser.SAS_Plus.Strips2SasPlus;
 
 enum VAR_TYPE {
@@ -148,6 +148,7 @@ public class TreeRexEncoder {
                 }
             }
             System.out.println("------------");
+            // SASPlusGeneratorDomain.generatlizeInstantiationSASPlusForDomain(problem, cliques);
         }
     }
 
@@ -179,7 +180,7 @@ public class TreeRexEncoder {
      * @param problem The problem to solve
      * @return A String representing the action in easily readable format
      */
-    private String prettyDisplayMethod(Method m, Problem problem) {
+    public String prettyDisplayMethod(Method m, Problem problem) {
         StringBuilder methodToDisplay = new StringBuilder();
 
         // Add the fluent name (e.g "at" for the fluent at ?r - robot ?l - location)
@@ -279,7 +280,7 @@ public class TreeRexEncoder {
                         var = addLayerAndPos(prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem),
                                 0, 0);
                         addToAllVariables(var);
-                        this.layers.get(0).layerElements.get(0).addClique(clique);
+                        this.layers.get(0).layerElements.get(0).addClique(clique, 0, 0);
                         constrainsInitState
                                 .append("(assert (= " +
                                         var
@@ -405,7 +406,7 @@ public class TreeRexEncoder {
 
                     addToAllVariables(varClique);
                     addToAllVariables(varCliqueInChildLayer);
-                    this.layers.get(layerIdx + 1).layerElements.get(childLayerElm).addClique(clique);
+                    this.layers.get(layerIdx + 1).layerElements.get(childLayerElm).addClique(clique, layerIdx + 1, childLayerElm);
 
                     constrainsDescendants.append("(assert (= " + varClique + " " + varCliqueInChildLayer + "))\n");
                 }
@@ -764,13 +765,33 @@ public class TreeRexEncoder {
                         for (Integer idxFluent : clique) {
                             if (action.getPrecondition().getPositiveFluents().get(idxFluent)) {
                                 Fluent f = this.problem.getFluents().get(idxFluent);
-                                // var = addLayerAndPos(prettyDisplayCliqueFluent(f, problem), layerIdx,
-                                // idxElmLayer);
+
+                                // Check if the fact is already in this position. If not, we can get the same fact from a previous position (since it means that this fact
+                                // has not change since this previous position) TODO To be able to do that, we need to know the effects of reduction to add them into the tree...
+                                // Take the clique from the closest previous layer which contains this clique
+
+                                // Integer layerPos = idxElmLayer;
+                            
+                                // for (int i = idxElmLayer; i >= 0; i--) {
+                                //     // System.out.println(i);
+                                //     if (this.layers.get(layerIdx).layerElements.get(i).getFluentCliques().contains(clique)) {
+                                //         layerPos = i;
+                                //         break;
+                                //     }
+                                // } 
+                                // // System.out.println("---");
+
+                                // // Get the layerIdx and layerPos of this clique (reuse the old variable)
+                                // Integer idx = this.layers.get(layerIdx).layerElements.get(layerPos).getFluentCliques().indexOf(clique);
+                                // Integer cliqueLayerIdx = this.layers.get(layerIdx).layerElements.get(layerPos).getFluentCliquesLayerIdx().get(idx);
+                                // Integer cliqueLayerPos = this.layers.get(layerIdx).layerElements.get(layerPos).getFluentCliqueLayerPosition().get(idx);
+
                                 var = addLayerAndPos(
-                                        prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem),
-                                        layerIdx, idxElmLayer);
+                                    prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem),
+                                    layerIdx,  idxElmLayer); 
+
                                 addToAllVariables(var);
-                                this.layers.get(layerIdx).layerElements.get(idxElmLayer).addClique(clique);
+                                this.layers.get(layerIdx).layerElements.get(idxElmLayer).addClique(clique, layerIdx, idxElmLayer);
                                 universalConstrains
                                         .append("(= " +
                                                 var
@@ -839,7 +860,7 @@ public class TreeRexEncoder {
                                         prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem),
                                         layerIdx, idxElmLayer + 1);
                                 addToAllVariables(var);
-                                this.layers.get(layerIdx).layerElements.get(idxElmLayer + 1).addClique(clique);
+                                this.layers.get(layerIdx).layerElements.get(idxElmLayer + 1).addClique(clique, layerIdx, idxElmLayer + 1);
                                 universalConstrains
                                         .append("(= " +
                                                 var
@@ -920,7 +941,7 @@ public class TreeRexEncoder {
                                         prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem),
                                         layerIdx, idxElmLayer);
                                 addToAllVariables(var);
-                                this.layers.get(layerIdx).layerElements.get(idxElmLayer).addClique(clique);
+                                this.layers.get(layerIdx).layerElements.get(idxElmLayer).addClique(clique, layerIdx, idxElmLayer);
                                 universalConstrains
                                         .append("(= " +
                                                 var
@@ -935,14 +956,13 @@ public class TreeRexEncoder {
                                         prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem),
                                         layerIdx, idxElmLayer);
                                 addToAllVariables(var);
-                                this.layers.get(layerIdx).layerElements.get(idxElmLayer).addClique(clique);
+                                // this.layers.get(layerIdx).layerElements.get(idxElmLayer).addClique(clique); ... NOT SURE WHAT TO DO HERE
                                 universalConstrains
                                         .append("(not (= " +
                                                 var
                                                 + " " + clique.indexOf(idxFluent) + ")) ");
                                 continue;
                             }
-
                         }
                     }
                 }
@@ -968,7 +988,20 @@ public class TreeRexEncoder {
                     }
                 }
                 universalConstrains.append(")))\n");
+
+                // // We also need to add the fact that could happen after a method is used into our tree (for now, do just the clique for test)
+                // // TODO HERE WE NEED TO ADD THE EFFECTS OF A METHOD (HOW IS IT POSSIBLE ??)
+                // for (int i_subtask = 0; i_subtask < method.getSubTasks().size(); i_subtask++) {
+                //     int subtask = method.getSubTasks().get(i_subtask);
+
+                //     if (this.problem.getTasks().get(subtask).isPrimtive()) {
+
+                //         Action a = this.problem.getActions().get(this.problem.getTaskResolvers().get(subtask).get(0));
+                // }
             }
+
+
+
 
             // Rule 7
             universalConstrains.append("; rule 7: action is primitive, reduction is not primitive\n");
@@ -1228,12 +1261,12 @@ public class TreeRexEncoder {
         Layer firstLayer = new Layer();
 
         for (int i = 0; i < this.problem.getInitialTaskNetwork().getTasks().size(); i++) {
-            LayerElement layerElm = new LayerElement();
+            LayerElement layerElm = new LayerElement(-1);
             firstLayer.layerElements.add(layerElm);
         }
 
         // Add as well a layer element for the goal
-        LayerElement finalLayerElm = new LayerElement();
+        LayerElement finalLayerElm = new LayerElement(-1);
         firstLayer.layerElements.add(finalLayerElm);
 
         this.layers.add(firstLayer);
@@ -1252,11 +1285,50 @@ public class TreeRexEncoder {
         int numberElmsInNextLayer = this.layers.lastElement().n.lastElement()
                 + this.layers.lastElement().e.lastElement();
 
-        for (int i = 0; i < numberElmsInNextLayer; i++) {
-            LayerElement layerElm = new LayerElement();
-            nextLayer.layerElements.add(layerElm);
+        // Create the child position of each position
+        for (int parentPositionIdx = 0; parentPositionIdx < this.layers.lastElement().layerElements.size(); parentPositionIdx++) {
+            // Create the correct number of child for this layer
+            for (int childPosition = 0; childPosition < this.layers.lastElement().e.get(parentPositionIdx); childPosition++) {
+                LayerElement layerElm = new LayerElement(parentPositionIdx);
+                nextLayer.layerElements.add(layerElm);
+            }
         }
+
+        // for (int i = 0; i < numberElmsInNextLayer; i++) {
+        //     LayerElement layerElm = new LayerElement(0);
+        //     nextLayer.layerElements.add(layerElm);
+        // }
         this.layers.add(nextLayer);
+    }
+
+    /**
+     * Get the position of the parenet layerElement which has created the layer specified by the layerIdx and layerPosition
+     * @param layerIdx LayerIdx of the child LayerElement
+     * @param layerPosition LayerPosition of the child LayerElement
+     * @return LayerPosition of the parent LayerElement
+     */
+    public int getParentPosition(int layerIdx, int layerPosition) {
+        return this.layers.get(layerIdx).layerElements.get(layerPosition).getParentPosition();
+    }
+
+    /**
+     * Get a unique ID for the couple (layer, position)
+     * @param layer 
+     * @param position
+     * @return Unqiue ID for the couple (layer, position)
+     */
+    public int GetUniqueIDForLayerAndPosition(int layer, int position) {
+        // The unique ID will simple be
+        // sum(layer_i * size layer_i) for i in range(0, layer) + position
+
+        int uniqueID = 0;
+        for (int layerIdx = 0; layerIdx < layer; layerIdx++) {
+            uniqueID += this.layers.get(layerIdx).layerElements.size();
+        }
+
+        uniqueID += position;
+
+        return uniqueID;
     }
 
     public void computeNextandMaxAmountOfChildOfEachLayerElm(int idxLayer) {

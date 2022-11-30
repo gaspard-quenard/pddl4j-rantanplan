@@ -21,6 +21,8 @@ public class LayerElement {
     private int maximumAmountSubsequentPositions;
     private int positionToPropagateInNextLayer;
 
+    private int parentPosition;
+
     private boolean containsBlankAction;
 
     private Vector<Action> actions;
@@ -29,16 +31,21 @@ public class LayerElement {
     private Vector<Fluent> negativeFluent;
 
     private Vector<List<Integer>> cliques;
-    private Vector<List<Integer>> negativeCliques;
+    private Vector<Integer> cliquesIdxLayer;
+    private Vector<Integer> cliquesIdxPosition;
 
-    public LayerElement() {
+    public LayerElement(int _parentPosition) {
         this.actions = new Vector<Action>();
         this.reductions = new Vector<Method>();
         this.positiveFluent = new Vector<Fluent>();
         this.negativeFluent = new Vector<Fluent>();
         this.cliques = new Vector<List<Integer>>();
+        this.cliquesIdxLayer = new Vector<Integer>();
+        this.cliquesIdxPosition = new Vector<Integer>();
         // this.negativeCliques = new Vector<List<Integer>>();
         this.containsBlankAction = false;
+
+        this.parentPosition = _parentPosition;
     }
 
     public void addReduction(Method reduction) {
@@ -65,9 +72,11 @@ public class LayerElement {
         }
     }
 
-    public void addClique(List<Integer> clique) {
+    public void addClique(List<Integer> clique, int layerIdx, int layerPosition) {
         if (!this.cliques.contains(clique)) {
             this.cliques.add(clique);
+            this.cliquesIdxLayer.add(layerIdx);
+            this.cliquesIdxPosition.add(layerPosition);
         }
     }
 
@@ -108,6 +117,14 @@ public class LayerElement {
         return this.cliques;
     }
 
+    public Vector<Integer> getFluentCliquesLayerIdx() {
+        return this.cliquesIdxLayer;
+    }
+
+    public Vector<Integer> getFluentCliqueLayerPosition() {
+        return this.cliquesIdxPosition;
+    }
+
 
     // public Vector<List<Integer>> getNegativesFluentCliques() {
     //     return this.negativeCliques;
@@ -126,5 +143,13 @@ public class LayerElement {
         }
 
         return numberChildren;
+    }
+
+    /**
+     * Return the position of the layerElement in the previous layer which has created this layerElement
+     * @return
+     */
+    public int getParentPosition() {
+        return this.parentPosition;
     }
 }
