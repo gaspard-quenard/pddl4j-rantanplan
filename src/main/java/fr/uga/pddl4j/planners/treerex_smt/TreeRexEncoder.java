@@ -148,7 +148,8 @@ public class TreeRexEncoder {
                 }
             }
             System.out.println("------------");
-            // SASPlusGeneratorDomain.generatlizeInstantiationSASPlusForDomain(problem, cliques);
+            // SASPlusGeneratorDomain.generatlizeInstantiationSASPlusForDomain(problem,
+            // cliques);
         }
     }
 
@@ -359,9 +360,13 @@ public class TreeRexEncoder {
         // RULE 4 -> All goal facts must hold in final element
         // TODO do it for clique as well !
         constrainsInitState.append("; rule 4: All facts hold at last position of init layer\n");
-        for (int i = 0; i < this.factsSize; i++) {
-            if (this.problem.getGoal().getPositiveFluents().get(i)) {
-                Fluent f = this.problem.getFluents().get(i);
+
+        BitVector goalPositiveFluents = this.problem.getGoal().getPositiveFluents();
+
+        for (int p = goalPositiveFluents
+                .nextSetBit(0); p >= 0; p = goalPositiveFluents.nextSetBit(p + 1)) {
+            if (!this.useSASplus || !fluentIsClique(p)) {
+                Fluent f = problem.getFluents().get(p);
                 var = addLayerAndPos(prettyDisplayFluent(f, problem), 0, number_elements_in_first_layer);
                 addToAllVariables(var);
                 constrainsInitState.append("(assert (= "
@@ -370,6 +375,7 @@ public class TreeRexEncoder {
 
                 lastLayerElm.addPositiveFluent(f);
             }
+            goalPositiveFluents.set(p);
         }
 
         return constrainsInitState.toString();
@@ -406,30 +412,12 @@ public class TreeRexEncoder {
 
                     addToAllVariables(varClique);
                     addToAllVariables(varCliqueInChildLayer);
-                    this.layers.get(layerIdx + 1).layerElements.get(childLayerElm).addClique(clique, layerIdx + 1, childLayerElm);
+                    this.layers.get(layerIdx + 1).layerElements.get(childLayerElm).addClique(clique, layerIdx + 1,
+                            childLayerElm);
 
                     constrainsDescendants.append("(assert (= " + varClique + " " + varCliqueInChildLayer + "))\n");
                 }
             }
-            // if (this.useSASplus) {
-            // for (List<Integer> clique : this.treerex_cliques) {
-
-            // String varClique =
-            // addLayerAndPos(prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique),
-            // problem), layerIdx, layerElm);
-
-            // String varCliqueInChildLayer =
-            // addLayerAndPos(prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique),
-            // problem), layerIdx + 1,
-            // childLayerElm);
-
-            // addToAllVariables(varClique);
-            // addToAllVariables(varCliqueInChildLayer);
-
-            // constrainsDescendants.append("(assert (= " + varClique + " " +
-            // varCliqueInChildLayer + "))\n");
-            // }
-            // }
             // Get all facts stored in the previous layer
             for (Fluent f : this.layers.get(layerIdx).layerElements.get(layerElm).getPositivesFluents()) {
                 // for (int i = 0; i < this.factsSize; i++) {
@@ -766,32 +754,40 @@ public class TreeRexEncoder {
                             if (action.getPrecondition().getPositiveFluents().get(idxFluent)) {
                                 Fluent f = this.problem.getFluents().get(idxFluent);
 
-                                // Check if the fact is already in this position. If not, we can get the same fact from a previous position (since it means that this fact
-                                // has not change since this previous position) TODO To be able to do that, we need to know the effects of reduction to add them into the tree...
+                                // Check if the fact is already in this position. If not, we can get the same
+                                // fact from a previous position (since it means that this fact
+                                // has not change since this previous position) TODO To be able to do that, we
+                                // need to know the effects of reduction to add them into the tree...
                                 // Take the clique from the closest previous layer which contains this clique
 
                                 // Integer layerPos = idxElmLayer;
-                            
+
                                 // for (int i = idxElmLayer; i >= 0; i--) {
-                                //     // System.out.println(i);
-                                //     if (this.layers.get(layerIdx).layerElements.get(i).getFluentCliques().contains(clique)) {
-                                //         layerPos = i;
-                                //         break;
-                                //     }
-                                // } 
+                                // // System.out.println(i);
+                                // if
+                                // (this.layers.get(layerIdx).layerElements.get(i).getFluentCliques().contains(clique))
+                                // {
+                                // layerPos = i;
+                                // break;
+                                // }
+                                // }
                                 // // System.out.println("---");
 
                                 // // Get the layerIdx and layerPos of this clique (reuse the old variable)
-                                // Integer idx = this.layers.get(layerIdx).layerElements.get(layerPos).getFluentCliques().indexOf(clique);
-                                // Integer cliqueLayerIdx = this.layers.get(layerIdx).layerElements.get(layerPos).getFluentCliquesLayerIdx().get(idx);
-                                // Integer cliqueLayerPos = this.layers.get(layerIdx).layerElements.get(layerPos).getFluentCliqueLayerPosition().get(idx);
+                                // Integer idx =
+                                // this.layers.get(layerIdx).layerElements.get(layerPos).getFluentCliques().indexOf(clique);
+                                // Integer cliqueLayerIdx =
+                                // this.layers.get(layerIdx).layerElements.get(layerPos).getFluentCliquesLayerIdx().get(idx);
+                                // Integer cliqueLayerPos =
+                                // this.layers.get(layerIdx).layerElements.get(layerPos).getFluentCliqueLayerPosition().get(idx);
 
                                 var = addLayerAndPos(
-                                    prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem),
-                                    layerIdx,  idxElmLayer); 
+                                        prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem),
+                                        layerIdx, idxElmLayer);
 
                                 addToAllVariables(var);
-                                this.layers.get(layerIdx).layerElements.get(idxElmLayer).addClique(clique, layerIdx, idxElmLayer);
+                                this.layers.get(layerIdx).layerElements.get(idxElmLayer).addClique(clique, layerIdx,
+                                        idxElmLayer);
                                 universalConstrains
                                         .append("(= " +
                                                 var
@@ -820,25 +816,34 @@ public class TreeRexEncoder {
                 }
 
                 // Get the preconditions of the action
-                for (int i = 0; i < this.factsSize; i++) {
-                    if (!this.useSASplus || !fluentIsClique(i)) {
-                        Fluent f = this.problem.getFluents().get(i);
-                        if (action.getPrecondition().getPositiveFluents().get(i)) {
-                            String fluentVar = prettyDisplayFluent(f, problem);
-                            String varFluent = addLayerAndPos(fluentVar, layerIdx, idxElmLayer);
-                            addToAllVariables(varFluent);
-                            this.layers.get(layerIdx).layerElements.get(idxElmLayer).addPositiveFluent(f);
-                            universalConstrains.append(varFluent + " ");
-                        }
-                        if (action.getPrecondition().getNegativeFluents().get(i)) {
-                            String fluentVar = prettyDisplayFluent(f, problem);
-                            String varFluent = addLayerAndPos(fluentVar, layerIdx, idxElmLayer);
-                            addToAllVariables(varFluent);
-                            this.layers.get(layerIdx).layerElements.get(idxElmLayer).addNegativeFluent(f);
-                            universalConstrains
-                                    .append("( not " + varFluent + " ) ");
-                        }
+                BitVector actionPreconditionPositiveFluents = action.getPrecondition().getPositiveFluents();
+
+                for (int p = actionPreconditionPositiveFluents
+                        .nextSetBit(0); p >= 0; p = actionPreconditionPositiveFluents.nextSetBit(p + 1)) {
+                    if (!this.useSASplus || !fluentIsClique(p)) {
+                        Fluent f = problem.getFluents().get(p);
+                        String fluentVar = prettyDisplayFluent(f, problem);
+                        String varFluent = addLayerAndPos(fluentVar, layerIdx, idxElmLayer);
+                        addToAllVariables(varFluent);
+                        this.layers.get(layerIdx).layerElements.get(idxElmLayer).addPositiveFluent(f);
+                        universalConstrains.append(varFluent + " ");
                     }
+                    actionPreconditionPositiveFluents.set(p);
+                }
+
+                BitVector actionPreconditionNegativesFluents = action.getPrecondition().getNegativeFluents();
+                for (int p = actionPreconditionNegativesFluents
+                        .nextSetBit(0); p >= 0; p = actionPreconditionNegativesFluents.nextSetBit(p + 1)) {
+                    if (!this.useSASplus || !fluentIsClique(p)) {
+                        Fluent f = problem.getFluents().get(p);
+                        String fluentVar = prettyDisplayFluent(f, problem);
+                        String varFluent = addLayerAndPos(fluentVar, layerIdx, idxElmLayer);
+                        addToAllVariables(varFluent);
+                        this.layers.get(layerIdx).layerElements.get(idxElmLayer).addNegativeFluent(f);
+                        universalConstrains
+                                .append("( not " + varFluent + " ) ");
+                    }
+                    actionPreconditionNegativesFluents.set(p);
                 }
                 universalConstrains.append(")))\n");
 
@@ -860,7 +865,8 @@ public class TreeRexEncoder {
                                         prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem),
                                         layerIdx, idxElmLayer + 1);
                                 addToAllVariables(var);
-                                this.layers.get(layerIdx).layerElements.get(idxElmLayer + 1).addClique(clique, layerIdx, idxElmLayer + 1);
+                                this.layers.get(layerIdx).layerElements.get(idxElmLayer + 1).addClique(clique, layerIdx,
+                                        idxElmLayer + 1);
                                 universalConstrains
                                         .append("(= " +
                                                 var
@@ -889,31 +895,42 @@ public class TreeRexEncoder {
                     }
                 }
 
-                for (int i = 0; i < this.factsSize; i++) {
-                    if (!this.useSASplus || !fluentIsClique(i)) {
-                        Boolean factInPositiveFluent = false;
-                        Fluent f = this.problem.getFluents().get(i);
-                        if (action.getUnconditionalEffect().getPositiveFluents().get(i)) {
-                            String fluentVar = prettyDisplayFluent(f, problem);
-                            String varFluent = addLayerAndPos(fluentVar, layerIdx, idxElmLayer + 1);
-                            addToAllVariables(varFluent);
-                            this.layers.get(layerIdx).layerElements.get(idxElmLayer + 1).addPositiveFluent(f);
-                            universalConstrains.append(varFluent + " ");
-                            factInPositiveFluent = true; // We have an incorect state if a fact is both a positive and
-                                                         // negative fluent of an action (e.g: move f0 f0 -> lift at f0
-                                                         // and
-                                                         // not lift at f0 for the next element)
-                        }
-                        if (action.getUnconditionalEffect().getNegativeFluents().get(i) && !factInPositiveFluent) {
-                            String fluentVar = prettyDisplayFluent(f, problem);
-                            String varFluent = addLayerAndPos(fluentVar, layerIdx, idxElmLayer + 1);
-                            addToAllVariables(varFluent);
-                            this.layers.get(layerIdx).layerElements.get(idxElmLayer + 1).addNegativeFluent(f);
-                            universalConstrains
-                                    .append("( not " + varFluent + " ) ");
-                        }
+                // Add effects of actions as well
+                BitVector actionEffectPositiveFluents = action.getUnconditionalEffect().getPositiveFluents();
+                List<Integer> fluentInPositiveEffects = new ArrayList<>(); // We have an incorect state if a fact is
+                                                                           // both a positive and negative fluent of an
+                                                                           // action (e.g: move f0 f0 -> lift at f0 and
+                                                                           // not lift at f0 for the next element)
+
+                for (int p = actionEffectPositiveFluents.nextSetBit(0); p >= 0; p = actionEffectPositiveFluents
+                        .nextSetBit(p + 1)) {
+                    if (!this.useSASplus || !fluentIsClique(p)) {
+                        Fluent f = problem.getFluents().get(p);
+                        String fluentVar = prettyDisplayFluent(f, problem);
+                        String varFluent = addLayerAndPos(fluentVar, layerIdx, idxElmLayer + 1);
+                        addToAllVariables(varFluent);
+                        this.layers.get(layerIdx).layerElements.get(idxElmLayer + 1).addPositiveFluent(f);
+                        universalConstrains.append(varFluent + " ");
+                        fluentInPositiveEffects.add(p);
                     }
+                    actionEffectPositiveFluents.set(p);
                 }
+
+                BitVector actionNegativesFluents = action.getUnconditionalEffect().getNegativeFluents();
+                for (int p = actionNegativesFluents.nextSetBit(0); p >= 0; p = actionNegativesFluents
+                        .nextSetBit(p + 1)) {
+                    if (!fluentInPositiveEffects.contains(p) && (!this.useSASplus || !fluentIsClique(p))) {
+                        Fluent f = problem.getFluents().get(p);
+                        String fluentVar = prettyDisplayFluent(f, problem);
+                        String varFluent = addLayerAndPos(fluentVar, layerIdx, idxElmLayer + 1);
+                        addToAllVariables(varFluent);
+                        this.layers.get(layerIdx).layerElements.get(idxElmLayer + 1).addNegativeFluent(f);
+                        universalConstrains
+                                .append("( not " + varFluent + " ) ");
+                    }
+                    actionNegativesFluents.set(p);
+                }
+
                 universalConstrains.append(")))\n");
             }
 
@@ -941,7 +958,8 @@ public class TreeRexEncoder {
                                         prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem),
                                         layerIdx, idxElmLayer);
                                 addToAllVariables(var);
-                                this.layers.get(layerIdx).layerElements.get(idxElmLayer).addClique(clique, layerIdx, idxElmLayer);
+                                this.layers.get(layerIdx).layerElements.get(idxElmLayer).addClique(clique, layerIdx,
+                                        idxElmLayer);
                                 universalConstrains
                                         .append("(= " +
                                                 var
@@ -956,7 +974,8 @@ public class TreeRexEncoder {
                                         prettyDisplayCliqueFluent(this.treerex_cliques.indexOf(clique), problem),
                                         layerIdx, idxElmLayer);
                                 addToAllVariables(var);
-                                // this.layers.get(layerIdx).layerElements.get(idxElmLayer).addClique(clique); ... NOT SURE WHAT TO DO HERE
+                                // this.layers.get(layerIdx).layerElements.get(idxElmLayer).addClique(clique);
+                                // ... NOT SURE WHAT TO DO HERE
                                 universalConstrains
                                         .append("(not (= " +
                                                 var
@@ -967,41 +986,51 @@ public class TreeRexEncoder {
                     }
                 }
 
-                // Get the positives preconditions of the action
-                for (int i = 0; i < this.factsSize; i++) {
-                    if (!this.useSASplus || !fluentIsClique(i)) {
-                        Fluent f = this.problem.getFluents().get(i);
-                        if (method.getPrecondition().getPositiveFluents().get(i)) {
-                            String fluentVar = prettyDisplayFluent(f, problem);
-                            var = addLayerAndPos(fluentVar, layerIdx, idxElmLayer);
-                            addToAllVariables(var);
-                            this.layers.get(layerIdx).layerElements.get(idxElmLayer).addPositiveFluent(f);
-                            universalConstrains.append(var + " ");
-                        }
-                        if (method.getPrecondition().getNegativeFluents().get(i)) {
-                            String fluentVar = prettyDisplayFluent(f, problem);
-                            var = addLayerAndPos(fluentVar, layerIdx, idxElmLayer);
-                            addToAllVariables(var);
-                            this.layers.get(layerIdx).layerElements.get(idxElmLayer).addNegativeFluent(f);
-                            universalConstrains.append("(not " + var + ") ");
-                        }
+                // Get the preconditions of the action
+                BitVector methodPreconditionPositiveFluents = method.getPrecondition().getPositiveFluents();
+
+                for (int p = methodPreconditionPositiveFluents
+                        .nextSetBit(0); p >= 0; p = methodPreconditionPositiveFluents.nextSetBit(p + 1)) {
+                    if (!this.useSASplus || !fluentIsClique(p)) {
+                        Fluent f = problem.getFluents().get(p);
+                        String fluentVar = prettyDisplayFluent(f, problem);
+                        var = addLayerAndPos(fluentVar, layerIdx, idxElmLayer);
+                        addToAllVariables(var);
+                        this.layers.get(layerIdx).layerElements.get(idxElmLayer).addPositiveFluent(f);
+                        universalConstrains.append(var + " ");
                     }
+                    methodPreconditionPositiveFluents.set(p);
                 }
+
+                BitVector methodPreconditionNegativesFluents = method.getPrecondition().getNegativeFluents();
+                for (int p = methodPreconditionNegativesFluents
+                        .nextSetBit(0); p >= 0; p = methodPreconditionNegativesFluents.nextSetBit(p + 1)) {
+                    if (!this.useSASplus || !fluentIsClique(p)) {
+                        Fluent f = problem.getFluents().get(p);
+                        String fluentVar = prettyDisplayFluent(f, problem);
+                        var = addLayerAndPos(fluentVar, layerIdx, idxElmLayer);
+                        addToAllVariables(var);
+                        this.layers.get(layerIdx).layerElements.get(idxElmLayer).addNegativeFluent(f);
+                        universalConstrains.append("(not " + var + ") ");
+                    }
+                    methodPreconditionNegativesFluents.set(p);
+                }
+
                 universalConstrains.append(")))\n");
 
-                // // We also need to add the fact that could happen after a method is used into our tree (for now, do just the clique for test)
+                // // We also need to add the fact that could happen after a method is used into
+                // our tree (for now, do just the clique for test)
                 // // TODO HERE WE NEED TO ADD THE EFFECTS OF A METHOD (HOW IS IT POSSIBLE ??)
-                // for (int i_subtask = 0; i_subtask < method.getSubTasks().size(); i_subtask++) {
-                //     int subtask = method.getSubTasks().get(i_subtask);
+                // for (int i_subtask = 0; i_subtask < method.getSubTasks().size(); i_subtask++)
+                // {
+                // int subtask = method.getSubTasks().get(i_subtask);
 
-                //     if (this.problem.getTasks().get(subtask).isPrimtive()) {
+                // if (this.problem.getTasks().get(subtask).isPrimtive()) {
 
-                //         Action a = this.problem.getActions().get(this.problem.getTaskResolvers().get(subtask).get(0));
+                // Action a =
+                // this.problem.getActions().get(this.problem.getTaskResolvers().get(subtask).get(0));
                 // }
             }
-
-
-
 
             // Rule 7
             universalConstrains.append("; rule 7: action is primitive, reduction is not primitive\n");
@@ -1120,17 +1149,16 @@ public class TreeRexEncoder {
                     }
                 }
 
-                for (int i = 0; i < this.factsSize; i++) {
-                    // if (!this.useSASplus || !fluentIsClique(i)) {
-                    Fluent f = this.problem.getFluents().get(i);
-                    if (this.layers.get(layerIdx).layerElements.get(idxElmLayer).getPositivesFluents().contains(f)) {
+                for (Fluent f : this.layers.get(layerIdx).layerElements.get(idxElmLayer).getPositivesFluents()) {
+                    int indexFluent = this.problem.getFluents().indexOf(f);
+                    if (!this.useSASplus || !fluentIsClique(indexFluent)) {
                         String varFluent = addLayerAndPos(prettyDisplayFluent(f, problem), layerIdx, idxElmLayer);
-
 
                         // Find the next change of this fact
                         int IdxNext = idxElmLayer + 1;
 
-                        for (int nxtLayer = idxElmLayer + 1; nxtLayer < this.layers.get(layerIdx).layerElements.size(); nxtLayer++) {
+                        for (int nxtLayer = idxElmLayer + 1; nxtLayer < this.layers.get(layerIdx).layerElements
+                                .size(); nxtLayer++) {
                             if (this.layers.get(layerIdx).layerElements.get(nxtLayer).getPositivesFluents()
                                     .contains(f)) {
                                 IdxNext = nxtLayer;
@@ -1139,7 +1167,7 @@ public class TreeRexEncoder {
                         }
 
                         String varFluentNextElm = addLayerAndPos(prettyDisplayFluent(f, problem), layerIdx,
-                        IdxNext);
+                                IdxNext);
                         String varPrimitivePred = addLayerAndPos(getPrimitivePredicate(), layerIdx, idxElmLayer);
                         addToAllVariables(varFluent);
                         addToAllVariables(varFluentNextElm);
@@ -1149,7 +1177,7 @@ public class TreeRexEncoder {
 
                         universalConstrains.append("(or (not " + varPrimitivePred + ") ");
                         for (Action a : availableActionsForThisLayerAndPos) {
-                            if (a.getUnconditionalEffect().getNegativeFluents().get(i)) {
+                            if (a.getUnconditionalEffect().getNegativeFluents().get(indexFluent)) {
                                 String varAction = addLayerAndPos(prettyDisplayAction(a, problem), layerIdx,
                                         idxElmLayer);
                                 addToAllVariables(varAction);
@@ -1158,13 +1186,20 @@ public class TreeRexEncoder {
                         }
                         universalConstrains.append(")))\n");
                     }
-                    if (this.layers.get(layerIdx).layerElements.get(idxElmLayer).getNegativesFluents().contains(f)) {
+                }
+                for (Fluent f : this.layers.get(layerIdx).layerElements.get(idxElmLayer).getNegativesFluents()) {
+                    int indexFluent = this.problem.getFluents().indexOf(f);
+                    if (!this.useSASplus || !fluentIsClique(indexFluent)) {
+                        // if
+                        // (this.layers.get(layerIdx).layerElements.get(idxElmLayer).getNegativesFluents().contains(f))
+                        // {
                         String varFluent = addLayerAndPos(prettyDisplayFluent(f, problem), layerIdx, idxElmLayer);
 
                         // Find the next change of this fact
                         int IdxNext = idxElmLayer + 1;
 
-                        for (int nxtLayer = idxElmLayer + 1; nxtLayer < this.layers.get(layerIdx).layerElements.size(); nxtLayer++) {
+                        for (int nxtLayer = idxElmLayer + 1; nxtLayer < this.layers.get(layerIdx).layerElements
+                                .size(); nxtLayer++) {
                             if (this.layers.get(layerIdx).layerElements.get(nxtLayer).getNegativesFluents()
                                     .contains(f)) {
                                 IdxNext = nxtLayer;
@@ -1183,7 +1218,8 @@ public class TreeRexEncoder {
 
                         universalConstrains.append("(or (not " + varPrimitivePred + ") ");
                         for (Action a : availableActionsForThisLayerAndPos) {
-                            if (a.getUnconditionalEffect().getPositiveFluents().get(i)) {
+                            if (a.getUnconditionalEffect().getPositiveFluents()
+                                    .get(indexFluent)) {
                                 String varAction = addLayerAndPos(prettyDisplayAction(a, problem), layerIdx,
                                         idxElmLayer);
                                 addToAllVariables(varAction);
@@ -1286,24 +1322,28 @@ public class TreeRexEncoder {
                 + this.layers.lastElement().e.lastElement();
 
         // Create the child position of each position
-        for (int parentPositionIdx = 0; parentPositionIdx < this.layers.lastElement().layerElements.size(); parentPositionIdx++) {
+        for (int parentPositionIdx = 0; parentPositionIdx < this.layers.lastElement().layerElements
+                .size(); parentPositionIdx++) {
             // Create the correct number of child for this layer
-            for (int childPosition = 0; childPosition < this.layers.lastElement().e.get(parentPositionIdx); childPosition++) {
+            for (int childPosition = 0; childPosition < this.layers.lastElement().e
+                    .get(parentPositionIdx); childPosition++) {
                 LayerElement layerElm = new LayerElement(parentPositionIdx);
                 nextLayer.layerElements.add(layerElm);
             }
         }
 
         // for (int i = 0; i < numberElmsInNextLayer; i++) {
-        //     LayerElement layerElm = new LayerElement(0);
-        //     nextLayer.layerElements.add(layerElm);
+        // LayerElement layerElm = new LayerElement(0);
+        // nextLayer.layerElements.add(layerElm);
         // }
         this.layers.add(nextLayer);
     }
 
     /**
-     * Get the position of the parenet layerElement which has created the layer specified by the layerIdx and layerPosition
-     * @param layerIdx LayerIdx of the child LayerElement
+     * Get the position of the parenet layerElement which has created the layer
+     * specified by the layerIdx and layerPosition
+     * 
+     * @param layerIdx      LayerIdx of the child LayerElement
      * @param layerPosition LayerPosition of the child LayerElement
      * @return LayerPosition of the parent LayerElement
      */
@@ -1313,7 +1353,8 @@ public class TreeRexEncoder {
 
     /**
      * Get a unique ID for the couple (layer, position)
-     * @param layer 
+     * 
+     * @param layer
      * @param position
      * @return Unqiue ID for the couple (layer, position)
      */
