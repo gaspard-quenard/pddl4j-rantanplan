@@ -23,7 +23,7 @@ import java.util.Collection;
 import java.util.List;
 
 import fr.uga.pddl4j.util.BitVector;
-import fr.uga.pddl4j.parser.SAS_Plus.SASPlusGeneratorDomain;
+// import fr.uga.pddl4j.parser.SAS_Plus.SASPlusGeneratorDomain;
 import fr.uga.pddl4j.parser.SAS_Plus.Strips2SasPlus;
 
 enum VAR_TYPE {
