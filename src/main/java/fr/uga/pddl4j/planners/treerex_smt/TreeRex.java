@@ -1,10 +1,13 @@
 package fr.uga.pddl4j.planners.treerex_smt;
 
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Stack;
 import java.util.Vector;
 import java.util.stream.Stream;
 
@@ -30,6 +33,7 @@ import fr.uga.pddl4j.planners.htn.stn.AbstractSTNPlanner;
 import fr.uga.pddl4j.problem.DefaultProblem;
 import fr.uga.pddl4j.problem.Fluent;
 import fr.uga.pddl4j.problem.Problem;
+import fr.uga.pddl4j.problem.Task;
 import fr.uga.pddl4j.problem.operator.Action;
 import fr.uga.pddl4j.problem.operator.Method;
 import fr.uga.pddl4j.util.BitVector;
@@ -140,10 +144,10 @@ public class TreeRex extends AbstractHTNPlanner {
     /**
      * Extracts a plan and hierarchy from the output of the SMT solver.
      * 
-     * @param problem the problem to solve
+     * @param problem         the problem to solve
      * @param outputSMTSolver the output of the SMT solver
-     * @param encoder the encoder used to encode the problem
-     * @param layerIdx the current layer index
+     * @param encoder         the encoder used to encode the problem
+     * @param layerIdx        the current layer index
      * @return the extracted plan and hierarchy
      */
     private SequentialPlan extractPlanAndHierarchyFromSolver(Problem problem, String outputSMTSolver,
@@ -151,10 +155,6 @@ public class TreeRex extends AbstractHTNPlanner {
 
         SequentialPlan p = new SequentialPlan();
         Hierarchy hierarchy = new Hierarchy();
-
-        List<Integer> ActionsID = new ArrayList<>();
-        List<Integer> MethodID = new ArrayList<>();
-        List<Integer> PlaceToInsertActionInMethod = new ArrayList<>();
 
         // Add the roots tasks to the hierarchy
         int numberRootTasks = problem.getInitialTaskNetwork().getTasks().size();
@@ -183,122 +183,28 @@ public class TreeRex extends AbstractHTNPlanner {
                                                                                                                 // layer
         ).toArray(String[]::new));
 
-        for (int i = 0; i < lValues.size(); i++) {
-            String s = lValues.get(i);
+        // Now, we will iterate our layers to see which reductions and which actions are
+        // true
+        // Let's start with the layer 0 element 0 for example and see which reduction
+        // can occur
 
-            String[] words = s.split(" ");
-            if (words.length > 4) {
+        for (int i = 0; i < encoder.layers.get(0).layerElements.size(); i++) {
+            Vector<Method> reductionPossibleAtThisLayerAndElement = encoder.layers.get(0).layerElements.get(i)
+                    .getReductions();
 
-                // Pass while we are not on the last layer
-                // words in the form: (define-fun METHOD_m1_go_ordering_0_f3_f0_f1_p1__3_9 ()
-                // Bool false)
-                int layer = Integer.valueOf(words[1].split("__")[1].split("_")[0]);
-                int position = Integer.valueOf(words[1].split("__")[1].split("_")[1]);
-
-                // Now we can check if it is an action
-                String nameActionMethodOrPredicate = words[1].split("__")[0];
-                if (nameActionMethodOrPredicate.startsWith("ACTION")) {
-
-                    // Find the action object associate with it
-                    for (Action action : problem.getActions()) {
-                        if (encoder.prettyDisplayAction(action, problem).equals(nameActionMethodOrPredicate)) {
-
-                            // Get the action ID for the decomposition
-                            int actionID = encoder.GetUniqueIDForLayerAndPosition(layer, position);
-
-                            if (layer < layerIdx) {
-
-                                // Get the parentID of this action
-                                int parentPosition = encoder.getParentPosition(layer, position);
-                                int parentLayer = layer - 1;
-                                int parentID = encoder.GetUniqueIDForLayerAndPosition(parentLayer, parentPosition);
-
-                                // If the parent ID is in the actions ID, replace the parent ID with the current
-                                // action
-                                if (ActionsID.contains(parentID)) {
-                                    ActionsID.set(ActionsID.indexOf(parentID), actionID);
-                                } else {
-                                    // It means the parent is a method
-
-                                    // Count the number of actions already with this parent (because it will modify
-                                    // the position of the insertion of the action)
-                                    int numberActionWithThisParent = 0;
-                                    for (int idx = 0; idx < MethodID.size(); idx++) {
-                                        if (MethodID.get(idx) == parentID) {
-                                            numberActionWithThisParent++;
-                                        }
-                                    }
-
-                                    // Add it into the actions ID with the method which has generated this action
-                                    ActionsID.add(actionID);
-                                    MethodID.add(parentID);
-
-                                    PlaceToInsertActionInMethod.add(
-                                            hierarchy.getDecomposition().get(MethodID.get(ActionsID.indexOf(actionID)))
-                                                    .size() + numberActionWithThisParent);
-                                }
-                            } else {
-
-                                // Get the parentID of this action
-                                int parentPosition = encoder.getParentPosition(layer, position);
-                                int parentLayer = layer - 1;
-                                int parentID = encoder.GetUniqueIDForLayerAndPosition(parentLayer, parentPosition);
-
-                                // For the last layer, put the actions in order into the hierarchy
-                                // If the parent ID is in the actions ID, replace the parent ID with the current
-                                // action
-                                if (ActionsID.contains(parentID)) {
-                                    ActionsID.set(ActionsID.indexOf(parentID), actionID);
-                                } else {
-                                    // Add it into the actions ID
-                                    ActionsID.add(actionID);
-                                    MethodID.add(parentID);
-                                    PlaceToInsertActionInMethod.add(hierarchy.getDecomposition()
-                                            .get(MethodID.get(ActionsID.indexOf(actionID))).size());
-                                }
-
-                                // Now we can put into the hierarchy
-                                hierarchy.getPrimtiveTasks().put(actionID, action);
-
-                                // Put as well the decomposition of the method to this actionID
-                                hierarchy.getDecomposition().get(MethodID.get(ActionsID.indexOf(actionID)))
-                                        .add(PlaceToInsertActionInMethod.get(ActionsID.indexOf(actionID)), actionID);
-                            }
-                            break;
-                        }
-                    }
-                } else if (nameActionMethodOrPredicate.startsWith("METHOD")) {
-
-                    // Add the method to the hierarchy
-
-                    // Find the method object associate with it
-                    for (Method method : problem.getMethods()) {
-                        if (encoder.prettyDisplayMethod(method, problem).equals(nameActionMethodOrPredicate)) {
-
-                            // Get the method ID for the decomposition
-                            int methodID = encoder.GetUniqueIDForLayerAndPosition(layer, position);
-
-                            // Now add it to our hierarchy
-                            hierarchy.getCounpoudTasks().put(methodID, method);
-                            hierarchy.getDecomposition().put(methodID, new ArrayList<>());
-
-                            // If the parent of this method is a initial task, the id of the initial task is
-                            // given by the current position
-                            // of the method
-                            if (layer == 0) {
-                                // hierarchy.getDecomposition().get(position).add(methodID);
-                            } else {
-                                // Get the parent of the method
-                                int parentPosition = encoder.getParentPosition(layer, position);
-                                int parentLayer = layer - 1;
-                                int parentID = encoder.GetUniqueIDForLayerAndPosition(parentLayer, parentPosition);
-                                hierarchy.getDecomposition().get(parentID).add(methodID);
-                            }
-                        }
-                    }
+            // Find which reduction is true
+            for (Method m : reductionPossibleAtThisLayerAndElement) {
+                // What would be the name of the method m in the SMT file ?
+                String methodName = encoder.addLayerAndPos(encoder.prettyDisplayMethod(m, problem), 0, i);
+                String fullLineMethodTrueInSMTFile = "(define-fun " + methodName + " () Bool true)";
+                // Check if method is true
+                boolean methodIsTrue = lValues.contains(fullLineMethodTrueInSMTFile);
+                if (methodIsTrue) {
+                    // Get the decomposition of this method
+                    recursiveGetHierarchyMethod(problem, lValues, encoder, hierarchy, m, 0, i);
+                    break; // Only one method can be true
                 }
             }
-
         }
 
         int timeStep = 0;
@@ -312,6 +218,100 @@ public class TreeRex extends AbstractHTNPlanner {
         return p;
     }
 
+    /**
+     * Recursively constructs a hierarchy for the given method by analyzing its
+     * subtasks.
+     *
+     * @param problem              the problem being solved
+     * @param linesOutputSMTSolver the output from the SMT solver, used to determine
+     *                             which methods and actions are true
+     * @param encoder              a TreeRexEncoder object used to encode the
+     *                             problem with the TreeRex encoding
+     * @param hierarchy            the hierarchy object being constructed
+     * @param method               the method to analyze
+     * @param layer                the layer of the method in the hierarchy
+     * @param position             the position of the method within its layer
+     */
+    void recursiveGetHierarchyMethod(Problem problem, List<String> linesOutputSMTSolver,
+            TreeRexEncoder encoder, Hierarchy hierarchy, Method method, Integer layer, Integer position) {
+
+        // Get an unique ID for the method depending of its layer and position
+        Integer methodID = encoder.GetUniqueIDForLayerAndPosition(layer, position);
+
+        // Add the method into our hierarchy
+        hierarchy.getCounpoudTasks().put(methodID, method);
+        hierarchy.getDecomposition().put(methodID, new ArrayList<>());
+
+        // Find the layer and element of the first child of this method
+        Integer layerChildMethod = layer + 1;
+        Integer positionChildMethod = encoder.layers.get(layer).n.get(position);
+
+        // Iterate over all subtasks of this method
+        for (Integer subtaskIdx : method.getSubTasks()) {
+
+            // Get the subtask object
+            Task subtask = problem.getTasks().get(subtaskIdx);
+
+            // If the subtask is accomplish by an action
+            if (subtask.isPrimtive()) {
+
+                // Get the action which accomplish the method
+                Action action = problem.getActions().get(problem.getTaskResolvers().get(subtaskIdx).get(0));
+
+                // Verify that this action is true in the SMT file at the correct layer and
+                // position
+                String actionName = encoder.addLayerAndPos(encoder.prettyDisplayAction(action, problem),
+                        layerChildMethod, positionChildMethod);
+
+                if (!linesOutputSMTSolver.contains("(define-fun " + actionName + " () Bool true)")) {
+                    LOGGER.error("Impossible !");
+                    return;
+                }
+
+                // Get the action unique ID
+                Integer actionID = encoder.GetUniqueIDForLayerAndPosition(layerChildMethod, positionChildMethod);
+
+                // Add this action into the hierarchy
+                hierarchy.getPrimtiveTasks().put(actionID, action);
+                hierarchy.getDecomposition().get(methodID).add(actionID);
+
+            } else {
+                // If the subtask is not primitive, find all methods which can resolve this
+                // subtask and find which one of them is true in the SMT file, then add it to
+                // the hierarchy as well
+                // as the LinkedList
+
+                // Get all the methods which can solve this task
+                for (Method subMethod : problem.getMethods()) {
+
+                    if (subMethod.getTask() == subtaskIdx) {
+
+                        // Check if this method is true in the SMT file
+                        String subMethodName = encoder.addLayerAndPos(encoder.prettyDisplayMethod(subMethod, problem),
+                                layerChildMethod, positionChildMethod);
+
+                        if (linesOutputSMTSolver.contains("(define-fun " + subMethodName + " () Bool true)")) {
+
+                            // Get the unique ID of the submethod
+                            Integer subMethodUniqueID = encoder.GetUniqueIDForLayerAndPosition(layerChildMethod,
+                                    positionChildMethod);
+
+                            // Add this methid as the decomposition of the parent method
+                            hierarchy.getDecomposition().get(methodID).add(subMethodUniqueID);
+
+                            // Recursive call this function to decompose it further
+                            recursiveGetHierarchyMethod(problem, linesOutputSMTSolver, encoder, hierarchy, subMethod,
+                                    layerChildMethod, positionChildMethod);
+
+                            break; // There can be only one method which is true as the decomposition
+                        }
+                    }
+                }
+            }
+            // Update the position element for the next child
+            positionChildMethod++;
+        }
+    }
 
     /**
      * 
@@ -319,14 +319,15 @@ public class TreeRex extends AbstractHTNPlanner {
      * number of boolean and numerical variables, and the solving and encoding
      * times.
      * 
-     * @param layerIdx         the index of the current layer
-     * @param clauses          the clauses generated by the encoder
-     * @param allBoolVariables the boolean variables generated by the encoder
-     * @param allIntVariables  the numerical variables generated by the encoder
-     * @param deltaEncodingTime  the encoding time for the current layer
-     * @param deltaSolvingTime    the solving time for the current layer
+     * @param layerIdx          the index of the current layer
+     * @param clauses           the clauses generated by the encoder
+     * @param allBoolVariables  the boolean variables generated by the encoder
+     * @param allIntVariables   the numerical variables generated by the encoder
+     * @param deltaEncodingTime the encoding time for the current layer
+     * @param deltaSolvingTime  the solving time for the current layer
      */
-    private void displayDebuggingInfo(int layerIdx, String clauses, Vector<String> allBoolVariables, Vector<String> allIntVariables, long deltaEncodingTime, long deltaSolvingTime) {
+    private void displayDebuggingInfo(int layerIdx, String clauses, Vector<String> allBoolVariables,
+            Vector<String> allIntVariables, long deltaEncodingTime, long deltaSolvingTime) {
 
         // Display the debugging information using the LOGGER.info function
         LOGGER.info("Current layer: {}\n", layerIdx);
@@ -343,16 +344,25 @@ public class TreeRex extends AbstractHTNPlanner {
         // Use SAS+ encoding
         boolean useSASplus = true;
 
+        // Initialize the variables which will store the encodning time and solving time
+        long deltaInitializingTreeRexTime = 0;
+        long deltaEncodingTime = 0;
+        long deltaSolvingTime = 0;
+
+        long beginInitializeTreeRexTime = System.currentTimeMillis();
+
         // Initialize the encoder
         TreeRexEncoder encoder = new TreeRexEncoder(problem, useSASplus);
+
+        // Record the encoding time for the initial layer
+        deltaInitializingTreeRexTime = System.currentTimeMillis() - beginInitializeTreeRexTime;
+
+        LOGGER.info("Initializing tree rex time: " + deltaInitializingTreeRexTime + " ms.\n");
 
         // Initialize the layer index and maximum number of layers
         int layerIdx = 0;
         int maxLayers = 10;
 
-        // Initialize the variables which will store the encodning time and solving time
-        long deltaEncodingTime = 0;
-        long deltaSolvingTime = 0;
 
         // Initialize the encoding time for the initial layer
         long beginEncodeTime = System.currentTimeMillis();
@@ -363,7 +373,7 @@ public class TreeRex extends AbstractHTNPlanner {
         Vector<String> allIntVariables = encoder.getAllIntVariables();
 
         int totalNumberVariables = allIntVariables.size() + allBoolVariables.size();
-        LOGGER.info("Launch solver (number variables: " + totalNumberVariables + "number clauses: "
+        LOGGER.info("Launch solver (number variables: " + totalNumberVariables + " number clauses: "
                 + clauses.split("\n").length + "\n");
 
         // Write the clauses and variables to a file
@@ -406,6 +416,7 @@ public class TreeRex extends AbstractHTNPlanner {
 
             // Write the clauses and variables to a file
             try {
+                LOGGER.info("Write into SMT file...\n");
                 writeIntoSMTFile(allBoolVariables, allIntVariables, clauses);
             } catch (IOException e) {
                 // Handle the exception
@@ -420,19 +431,19 @@ public class TreeRex extends AbstractHTNPlanner {
             beginSolveTime = System.currentTimeMillis();
 
             // Run the SMT solver on the file
+            LOGGER.info("Launch solver on SMT file...\n");
             responseSMT = executeSMTSolverOnFile();
 
             // Record the solving time
             deltaSolvingTime = System.currentTimeMillis() - beginSolveTime;
             this.getStatistics().setTimeToSearch(this.getStatistics().getTimeToSearch() + deltaSolvingTime);
-    
-            displayDebuggingInfo(layerIdx, clauses, allBoolVariables, allIntVariables, deltaEncodingTime, deltaSolvingTime);
+
+            displayDebuggingInfo(layerIdx, clauses, allBoolVariables, allIntVariables, deltaEncodingTime,
+                    deltaSolvingTime);
         }
 
         // If the SMT file is satisfiable, extract the plan from the response
         if (fileIsSatisfiable(executeSMTSolverOnFile())) {
-
-
 
             // Write the output of the SMT solver to a file for debugging purpose
             File resultSMTFile;
@@ -440,17 +451,14 @@ public class TreeRex extends AbstractHTNPlanner {
                 resultSMTFile = File.createTempFile("tmp_result_SMT", ".txt");
 
                 BufferedWriter writer = new BufferedWriter(new FileWriter(resultSMTFile));
-                    writer.write(responseSMT);
-                    writer.close();
+                writer.write(responseSMT);
+                writer.close();
             } catch (IOException e1) {
                 // TODO Auto-generated catch block
                 e1.printStackTrace();
             }
 
-
-
-
-
+            LOGGER.info("Extract the hierarchy of the plan...\n");
             SequentialPlan plan = extractPlanAndHierarchyFromSolver(problem, responseSMT, encoder, layerIdx);
 
             // Verify if the plan is valid
@@ -469,7 +477,7 @@ public class TreeRex extends AbstractHTNPlanner {
             } else {
                 LOGGER.error("Plan is not valid !\n");
             }
-            
+
         }
         // If the SMT file is not satisfiable, return null
         return null;

@@ -18,9 +18,6 @@ import fr.uga.pddl4j.problem.operator.Action;
  */
 public class LayerElement {
 
-    private int maximumAmountSubsequentPositions;
-    private int positionToPropagateInNextLayer;
-
     private int parentPosition;
 
     private boolean containsBlankAction;
@@ -66,9 +63,16 @@ public class LayerElement {
         }
     }
 
+    // public void addNegativeFluent(Fluent fluent) {
+    //     if (!this.negativeFluent.contains(fluent)) {
+    //     this.negativeFluent.add(fluent);
+    //     }
+    // }
+
+    // For now, positive fluent and negative fluent are treated in the same way
     public void addNegativeFluent(Fluent fluent) {
-        if (!this.negativeFluent.contains(fluent)) {
-        this.negativeFluent.add(fluent);
+        if (!this.positiveFluent.contains(fluent)) {
+        this.positiveFluent.add(fluent);
         }
     }
 
@@ -108,10 +112,14 @@ public class LayerElement {
     }
 
 
-    public Vector<Fluent> getNegativesFluents() {
-        return this.negativeFluent;
-    }
+    // public Vector<Fluent> getNegativesFluents() {
+    //     return this.negativeFluent;
+    // }
 
+    // For now, positive fluent and negative fluent are treated in the same way
+    public Vector<Fluent> getNegativesFluents() {
+        return this.positiveFluent;
+    }
 
     public Vector<List<Integer>> getFluentCliques() {
         return this.cliques;
