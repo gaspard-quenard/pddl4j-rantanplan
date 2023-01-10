@@ -151,7 +151,7 @@ public class TreeRex extends AbstractHTNPlanner {
      * @return the extracted plan and hierarchy
      */
     private SequentialPlan extractPlanAndHierarchyFromSolver(Problem problem, String outputSMTSolver,
-            TreeRexEncoder encoder, int layerIdx) {
+            TreeRexEncoder encoder, int layerIdx, boolean useOneVarToEncodeAllActionsAtLayerAndPos) {
 
         SequentialPlan p = new SequentialPlan();
         Hierarchy hierarchy = new Hierarchy();
@@ -169,8 +169,15 @@ public class TreeRex extends AbstractHTNPlanner {
 
         // Only keep the actions and methods which are true (do not keep blank action as
         // well)
-        lValues = Arrays.asList(lValues.stream().filter(s -> ((s.contains(" ACTION_") || s.contains(" METHOD_"))
-                && s.contains(" true)") && !s.contains("_Blank_"))).toArray(String[]::new));
+
+        if (!useOneVarToEncodeAllActionsAtLayerAndPos) {
+            lValues = Arrays.asList(lValues.stream().filter(s -> ((s.contains(" ACTION_") || s.contains(" METHOD_"))
+            && s.contains(" true)") && !s.contains("_Blank_"))).toArray(String[]::new));
+        } else {
+            lValues = Arrays.asList(lValues.stream().filter(s -> ((s.contains("CLIQUE_ACTION__") || (s.contains(" METHOD_"))
+            && s.contains(" true)")))).toArray(String[]::new)); 
+        }
+
 
         // We also need to sort by layer and then by position
         lValues = Arrays.asList(lValues.stream().sorted(Comparator
@@ -201,7 +208,7 @@ public class TreeRex extends AbstractHTNPlanner {
                 boolean methodIsTrue = lValues.contains(fullLineMethodTrueInSMTFile);
                 if (methodIsTrue) {
                     // Get the decomposition of this method
-                    recursiveGetHierarchyMethod(problem, lValues, encoder, hierarchy, m, 0, i);
+                    recursiveGetHierarchyMethod(problem, lValues, encoder, hierarchy, m, 0, i, useOneVarToEncodeAllActionsAtLayerAndPos);
                     break; // Only one method can be true
                 }
             }
@@ -233,7 +240,7 @@ public class TreeRex extends AbstractHTNPlanner {
      * @param position             the position of the method within its layer
      */
     void recursiveGetHierarchyMethod(Problem problem, List<String> linesOutputSMTSolver,
-            TreeRexEncoder encoder, Hierarchy hierarchy, Method method, Integer layer, Integer position) {
+            TreeRexEncoder encoder, Hierarchy hierarchy, Method method, Integer layer, Integer position, boolean useOneVarToEncodeAllActionsAtLayerAndPos) {
 
         // Get an unique ID for the method depending of its layer and position
         Integer methodID = encoder.GetUniqueIDForLayerAndPosition(layer, position);
@@ -260,10 +267,17 @@ public class TreeRex extends AbstractHTNPlanner {
 
                 // Verify that this action is true in the SMT file at the correct layer and
                 // position
-                String actionName = encoder.addLayerAndPos(encoder.prettyDisplayAction(action, problem),
-                        layerChildMethod, positionChildMethod);
+                final String lineActionTrueInSMTFile;
 
-                if (!linesOutputSMTSolver.contains("(define-fun " + actionName + " () Bool true)")) {
+                if (!useOneVarToEncodeAllActionsAtLayerAndPos) {
+                    lineActionTrueInSMTFile = "(define-fun " + encoder.addLayerAndPos(encoder.prettyDisplayAction(action, problem),
+                    layerChildMethod, positionChildMethod) + " () Bool true)";
+                } else {
+                    lineActionTrueInSMTFile = "(define-fun " + encoder.addLayerAndPos(encoder.getCliqueAction(),
+                    layerChildMethod, positionChildMethod) + " () Int " + problem.getActions().indexOf(action) + ")";
+                }
+
+                if (!linesOutputSMTSolver.contains(lineActionTrueInSMTFile)) {
                     LOGGER.error("Impossible !");
                     return;
                 }
@@ -301,7 +315,7 @@ public class TreeRex extends AbstractHTNPlanner {
 
                             // Recursive call this function to decompose it further
                             recursiveGetHierarchyMethod(problem, linesOutputSMTSolver, encoder, hierarchy, subMethod,
-                                    layerChildMethod, positionChildMethod);
+                                    layerChildMethod, positionChildMethod, useOneVarToEncodeAllActionsAtLayerAndPos);
 
                             break; // There can be only one method which is true as the decomposition
                         }
@@ -344,6 +358,8 @@ public class TreeRex extends AbstractHTNPlanner {
         // Use SAS+ encoding
         boolean useSASplus = true;
 
+        boolean useOneVarToEncodeAllActionsAtLayerAndPos = false;
+
         // Initialize the variables which will store the encodning time and solving time
         long deltaInitializingTreeRexTime = 0;
         long deltaEncodingTime = 0;
@@ -352,7 +368,7 @@ public class TreeRex extends AbstractHTNPlanner {
         long beginInitializeTreeRexTime = System.currentTimeMillis();
 
         // Initialize the encoder
-        TreeRexEncoder encoder = new TreeRexEncoder(problem, useSASplus);
+        TreeRexEncoder encoder = new TreeRexEncoder(problem, useSASplus, useOneVarToEncodeAllActionsAtLayerAndPos);
 
         // Record the encoding time for the initial layer
         deltaInitializingTreeRexTime = System.currentTimeMillis() - beginInitializeTreeRexTime;
@@ -459,7 +475,7 @@ public class TreeRex extends AbstractHTNPlanner {
             }
 
             LOGGER.info("Extract the hierarchy of the plan...\n");
-            SequentialPlan plan = extractPlanAndHierarchyFromSolver(problem, responseSMT, encoder, layerIdx);
+            SequentialPlan plan = extractPlanAndHierarchyFromSolver(problem, responseSMT, encoder, layerIdx, useOneVarToEncodeAllActionsAtLayerAndPos);
 
             // Verify if the plan is valid
             LOGGER.info("Check if plan is valid...\n");

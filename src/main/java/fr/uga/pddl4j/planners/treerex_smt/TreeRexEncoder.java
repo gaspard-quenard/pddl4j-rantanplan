@@ -52,11 +52,13 @@ public class TreeRexEncoder {
     // Used only if SAS+ is true in the function TreeRexEncoder
     List<List<Integer>> treerex_cliques;
 
+    private boolean useOneVarToEncodeAllActionsAtLayerAndPos;
+
     StringBuilder allClauses;
     Vector<String> allBoolVariables;
     Vector<String> allIntVariables;
 
-    public TreeRexEncoder(Problem problem, boolean useSASplus) {
+    public TreeRexEncoder(Problem problem, boolean useSASplus, boolean useOneVarToEncodeAllActionsAtLayerAndPos) {
         this.problem = problem;
 
         this.actionsSize = this.problem.getActions().size();
@@ -65,6 +67,7 @@ public class TreeRexEncoder {
         this.allIntVariables = new Vector<String>();
         this.allClauses = new StringBuilder();
         this.useSASplus = useSASplus;
+        this.useOneVarToEncodeAllActionsAtLayerAndPos = useOneVarToEncodeAllActionsAtLayerAndPos;
         this.dictFluentIdxToClique = new HashMap<>();
 
         long beginPreprocessingTime = System.currentTimeMillis();
@@ -378,6 +381,7 @@ public class TreeRexEncoder {
         return cliqueFluentToDisplay.toString();
     }
 
+
     public String addLayerAndPos(String varToAdd, int layer, int pos) {
         return varToAdd + "__" + Integer.toString(layer) + "_" + Integer.toString(pos);
     }
@@ -391,6 +395,10 @@ public class TreeRexEncoder {
 
     private String getBlankAction() {
         return "ACTION_Blank";
+    }
+
+    public String getCliqueAction() {
+        return "CLIQUE_ACTION";
     }
 
     private String getPrimitivePredicate() {
@@ -496,10 +504,19 @@ public class TreeRexEncoder {
 
         // RULE 3 -> Add a blank element to the last position of the initial layer
         constrainsInitState.append("; rule 3: Blank element at last position of init layer\n");
-        var = addLayerAndPos(getBlankAction(), 0, number_elements_in_first_layer);
-        addToAllVariables(var);
-        constrainsInitState.append(
-                "(assert (= " + var + " true))\n");
+        if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {
+            var = addLayerAndPos(getBlankAction(), 0, number_elements_in_first_layer);
+            addToAllVariables(var);
+            constrainsInitState.append(
+                    "(assert (= " + var + " true))\n");
+        }
+        else {
+            var = addLayerAndPos(getCliqueAction(), 0, number_elements_in_first_layer);
+            addToAllVariables(var);
+            constrainsInitState.append(
+                    "(assert (= " + var + " " + this.problem.getActions().size() + " ))\n");
+        }
+
 
         lastLayerElm.addBlankAction();
 
@@ -624,22 +641,37 @@ public class TreeRexEncoder {
             LayerElement childLayerElement = this.layers.get(layerIdx + 1).layerElements.get(childLayerElm);
 
             for (Action a : availableActionForThisLayerAndPos) {
-                String varAction = addLayerAndPos(prettyDisplayAction(a, problem), layerIdx, layerElm);
-                String varActionNextLayer = addLayerAndPos(prettyDisplayAction(a, problem), layerIdx + 1,
-                        childLayerElm);
-                addToAllVariables(varAction);
-                addToAllVariables(varActionNextLayer);
-                constrainsRule11.append("(assert (=> " + varAction + " " + varActionNextLayer + "))\n");
+
+                if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {
+                    String varAction = addLayerAndPos(prettyDisplayAction(a, problem), layerIdx, layerElm);
+                    String varActionNextLayer = addLayerAndPos(prettyDisplayAction(a, problem), layerIdx + 1,
+                            childLayerElm);
+                    addToAllVariables(varActionNextLayer);
+                    constrainsRule11.append("(assert (=> " + varAction + " " + varActionNextLayer + "))\n");
+                } else {
+                    String varAction = addLayerAndPos(getCliqueAction(), layerIdx, layerElm);
+                    String varActionNextLayer = addLayerAndPos(getCliqueAction(), layerIdx + 1, childLayerElm);
+                    int idxAction = this.problem.getActions().indexOf(a);
+                    addToAllVariables(varActionNextLayer);
+                    constrainsRule11.append("(assert (=> (= " + varAction + " " + idxAction + ") (= " + varActionNextLayer + " " + idxAction + ")))\n");
+                }
                 childLayerElement.addAction(a);
             }
 
             // Add as well the blank action if this layer can have a blank action
             if (layerElement.canContainsBlankAction()) {
-                String varBlankAction = addLayerAndPos(getBlankAction(), layerIdx, layerElm);
-                String varBlankActionNextLayer = addLayerAndPos(getBlankAction(), layerIdx + 1, childLayerElm);
-                addToAllVariables(varBlankAction);
-                addToAllVariables(varBlankActionNextLayer);
-                constrainsRule11.append("(assert (=> " + varBlankAction + " " + varBlankActionNextLayer + "))\n");
+                if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {  
+                    String varBlankAction = addLayerAndPos(getBlankAction(), layerIdx, layerElm);
+                    String varBlankActionNextLayer = addLayerAndPos(getBlankAction(), layerIdx + 1, childLayerElm);
+                    addToAllVariables(varBlankActionNextLayer);
+                    constrainsRule11.append("(assert (=> " + varBlankAction + " " + varBlankActionNextLayer + "))\n");
+                } else {
+                    String varBlankAction = addLayerAndPos(getCliqueAction(), layerIdx, layerElm);
+                    String varBlankActionNextLayer = addLayerAndPos(getCliqueAction(), layerIdx + 1, childLayerElm);
+                    int idxBlankAction = this.problem.getActions().size();
+                    addToAllVariables(varBlankActionNextLayer); 
+                    constrainsRule11.append("(assert (=> (= " + varBlankAction + " " + idxBlankAction + ") (= " + varBlankActionNextLayer + " " + idxBlankAction + ")))\n");
+                }
                 childLayerElement.addBlankAction();
             }
         }
@@ -748,10 +780,15 @@ public class TreeRexEncoder {
                         // Get the action which accomplish the method
                         Action a = this.problem.getActions().get(this.problem.getTaskResolvers().get(subtask).get(0));
 
-                        String varActionNextLayer = addLayerAndPos(prettyDisplayAction(a, problem), layerIdx + 1,
-                                firstPosChildElm + i_subtask);
-
-                        constrainsRule13_14_15.append(varActionNextLayer + "))\n");
+                        final String varActionNextLayer;
+                        if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {
+                            varActionNextLayer = addLayerAndPos(prettyDisplayAction(a, problem), layerIdx + 1,
+                            firstPosChildElm + i_subtask);
+                            constrainsRule13_14_15.append(varActionNextLayer + "))\n");
+                        } else {
+                            varActionNextLayer = addLayerAndPos(getCliqueAction(), layerIdx + 1, firstPosChildElm + i_subtask);
+                            constrainsRule13_14_15.append("(= " + varActionNextLayer + " " + this.problem.getActions().indexOf(a) + ")))\n");
+                        }
 
                         // Add the action as well to the Tree
                         layerElement.addAction(a);
@@ -778,9 +815,17 @@ public class TreeRexEncoder {
 
                 // RULE 15 Reduction to blank actions
                 for (int i = m.getSubTasks().size(); i < nbChildElms; i++) {
-                    String varBlankAction = addLayerAndPos(getBlankAction(), layerIdx + 1, firstPosChildElm + i);
-                    addToAllVariables(varBlankAction);
-                    constrainsRule13_14_15.append("(assert (=> " + varMethod + " " + varBlankAction + "))\n");
+
+                    if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {
+                        String varBlankAction = addLayerAndPos(getBlankAction(), layerIdx + 1, firstPosChildElm + i);
+                        addToAllVariables(varBlankAction);
+                        constrainsRule13_14_15.append("(assert (=> " + varMethod + " " + varBlankAction + "))\n");
+                    } else {
+                        String varBlankAction = addLayerAndPos(getCliqueAction(), layerIdx + 1, firstPosChildElm + i);
+                        addToAllVariables(varBlankAction);
+                        constrainsRule13_14_15.append("(assert (=> " + varMethod + " (= " + varBlankAction + " " + this.problem.getActions().size() + ")))\n");
+                    }
+
 
                     // Add as well the blank action to our layer
                     this.layers.get(layerIdx + 1).layerElements.get(firstPosChildElm + i).addBlankAction();
@@ -832,14 +877,26 @@ public class TreeRexEncoder {
             universalConstrains.append("; rule 5: action implies precond and effects\n");
             for (Action action : this.layers.get(layerIdx).layerElements.get(idxElmLayer).getActions()) {
 
-                String varAction = addLayerAndPos(prettyDisplayAction(action, problem), layerIdx, idxElmLayer);
+                final String varAction;
+                if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {
+                    varAction = addLayerAndPos(prettyDisplayAction(action, problem), layerIdx, idxElmLayer);
+                } else {
+                    varAction = addLayerAndPos(getCliqueAction(), layerIdx, idxElmLayer);
+                }
+                addToAllVariables(varAction);
+                
 
                 if (action.getPrecondition().getPositiveFluents().length()
                         + action.getPrecondition().getNegativeFluents().length() > 0) {
 
-                    addToAllVariables(varAction);
-                    universalConstrains.append("(assert (=> "
-                            + varAction + " (and ");
+                    if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {    
+                        universalConstrains.append("(assert (=> "
+                                + varAction + " (and ");
+                    } else {
+                        universalConstrains.append("(assert (=> (= "
+                        + varAction + " " + this.problem.getActions().indexOf(action) + ") (and "); 
+                    }
+
 
                     // Do it for SAS+ var first
                     if (this.useSASplus) {
@@ -985,8 +1042,14 @@ public class TreeRexEncoder {
                 }
 
                 // Add the effects of the actions as well (add true to prevent errors caused by incorrect SMT file format when there are no effects to the action)
-                universalConstrains.append("(assert (=> "
-                        + varAction + " (and true ");
+                if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {
+                    universalConstrains.append("(assert (=> "
+                    + varAction + " (and true ");
+                } else {
+                    universalConstrains.append("(assert (=> (= "
+                    + varAction + " " + this.problem.getActions().indexOf(action) + ") (and true "); 
+                }
+
 
                 if (this.useSASplus) {
                     for (List<Integer> clique : this.treerex_cliques) {
@@ -1186,13 +1249,27 @@ public class TreeRexEncoder {
             // Rule 7
             universalConstrains.append("; rule 7: action is primitive, reduction is not primitive\n");
             for (Action action : this.layers.get(layerIdx).layerElements.get(idxElmLayer).getActions()) {
-                String varAction = addLayerAndPos(prettyDisplayAction(action, problem), layerIdx, idxElmLayer);
+                final String varAction;
+                if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {
+                    varAction = addLayerAndPos(prettyDisplayAction(action, problem), layerIdx, idxElmLayer);
+                } else {
+                    varAction = addLayerAndPos(getCliqueAction(), layerIdx, idxElmLayer);
+                }
+                
                 String varPrimitivePredicate = addLayerAndPos(getPrimitivePredicate(), layerIdx, idxElmLayer);
-                addToAllVariables(varAction);
+                // addToAllVariables(varAction);
                 addToAllVariables(varPrimitivePredicate);
-                universalConstrains.append("(assert (=> "
-                        + varAction + " ");
+                if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {
+                    universalConstrains.append("(assert (=> "
+                    + varAction + " ");
+                    
+                } else {
+                    universalConstrains.append("(assert (=> (= "
+                    + varAction + " " + this.problem.getActions().indexOf(action) + ") ");
+                }
+
                 universalConstrains.append(varPrimitivePredicate + "))\n");
+
             }
             for (Method method : this.layers.get(layerIdx).layerElements.get(idxElmLayer).getReductions()) {
                 String varMethod = addLayerAndPos(prettyDisplayMethod(method, problem), layerIdx, idxElmLayer);
@@ -1204,32 +1281,46 @@ public class TreeRexEncoder {
                         .append("(not " + varPrimitivePredicate + ")))\n");
             }
             if (this.layers.get(layerIdx).layerElements.get(idxElmLayer).canContainsBlankAction()) {
-                String varBlankAction = addLayerAndPos(getBlankAction(), layerIdx, idxElmLayer);
+                final String varBlankAction;
+                if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {
+                    varBlankAction = addLayerAndPos(getBlankAction(), layerIdx, idxElmLayer);
+                } else {
+                    varBlankAction = addLayerAndPos(getCliqueAction(), layerIdx, idxElmLayer);
+                }
                 String varPrimitivePredicate = addLayerAndPos(getPrimitivePredicate(), layerIdx, idxElmLayer);
                 addToAllVariables(varBlankAction);
                 addToAllVariables(varPrimitivePredicate);
-                universalConstrains.append("(assert (=> " + varBlankAction + " " + varPrimitivePredicate + "))\n");
+                if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {
+                    universalConstrains.append("(assert (=> " + varBlankAction + " " + varPrimitivePredicate + "))\n");
+                } else {
+                    universalConstrains.append("(assert (=> (= " + varBlankAction + " " + this.problem.getActions().size() + ") " + varPrimitivePredicate + "))\n");
+                }
+                
             }
 
             // Rule 9
             universalConstrains.append("; rule 9: At most one action\n");
+            if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {
             for (int i = 0; i < nbAction; i++) {
-                Action a1 = availableActionsForThisLayerAndPos.get(i);
-                String varAction1 = addLayerAndPos(prettyDisplayAction(a1, problem), layerIdx, idxElmLayer);
-                addToAllVariables(varAction1);
-                for (int j = i + 1; j < nbAction; j++) {
-                    Action a2 = availableActionsForThisLayerAndPos.get(j);
-                    String varAction2 = addLayerAndPos(prettyDisplayAction(a2, problem), layerIdx, idxElmLayer);
-                    addToAllVariables(varAction2);
-                    universalConstrains.append("(assert (or (not " + varAction1 + ") (not " + varAction2 + ")))\n");
-                }
+                    Action a1 = availableActionsForThisLayerAndPos.get(i);
+                    String varAction1 = addLayerAndPos(prettyDisplayAction(a1, problem), layerIdx, idxElmLayer);
+                    addToAllVariables(varAction1);
+                    for (int j = i + 1; j < nbAction; j++) {
+                        Action a2 = availableActionsForThisLayerAndPos.get(j);
+                        String varAction2 = addLayerAndPos(prettyDisplayAction(a2, problem), layerIdx, idxElmLayer);
+                        addToAllVariables(varAction2);
+                        universalConstrains.append("(assert (or (not " + varAction1 + ") (not " + varAction2 + ")))\n");
+                    }
 
-                // Add the blank action as well if this elm can contain a blank action
-                if (this.layers.get(layerIdx).layerElements.get(idxElmLayer).canContainsBlankAction()) {
-                    String varBlankAction = addLayerAndPos(getBlankAction(), layerIdx, idxElmLayer);
-                    addToAllVariables(varBlankAction);
-                    universalConstrains.append("(assert (or (not " + varAction1 + ") (not " + varBlankAction + ")))\n");
+                    // Add the blank action as well if this elm can contain a blank action
+                    if (this.layers.get(layerIdx).layerElements.get(idxElmLayer).canContainsBlankAction()) {
+                        String varBlankAction = addLayerAndPos(getBlankAction(), layerIdx, idxElmLayer);
+                        addToAllVariables(varBlankAction);
+                        universalConstrains.append("(assert (or (not " + varAction1 + ") (not " + varBlankAction + ")))\n");
+                    }
                 }
+            } else {
+                universalConstrains.append("; No need to implement when we use one variable for all actions possible in a position layer...\n");
             }
         }
 
@@ -1313,10 +1404,19 @@ public class TreeRexEncoder {
                             for (Action a : actionsAvailableForThisLayerAndPos) {
                                 if (a.getUnconditionalEffect().getNegativeFluents().get(idxFluent)
                                         || a.getUnconditionalEffect().getPositiveFluents().get(idxFluent)) {
-                                    String varAction = addLayerAndPos(prettyDisplayAction(a, problem), layerIdx,
-                                            IdxNext - 1);
-                                    addToAllVariables(varAction);
-                                    universalConstrains.append(varAction + " ");
+
+                                    if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {
+                                        String varAction = addLayerAndPos(prettyDisplayAction(a, problem), layerIdx,
+                                        IdxNext - 1);
+                                        addToAllVariables(varAction);
+                                        universalConstrains.append(varAction + " ");
+                                    } else {
+                                        String varAction = addLayerAndPos(getCliqueAction(), layerIdx,
+                                        IdxNext - 1);
+                                        addToAllVariables(varAction);
+                                        universalConstrains.append("(= " + varAction + " " + this.problem.getActions().indexOf(a) + ") ");
+                                    }
+
                                 }
                             }
 
@@ -1379,10 +1479,19 @@ public class TreeRexEncoder {
 
                             for (Action a : actionsAvailableForThisLayerAndPos) {
                                 if (a.getUnconditionalEffect().getNegativeFluents().get(indexFluent)) {
-                                    String varAction = addLayerAndPos(prettyDisplayAction(a, problem), layerIdx,
-                                            layerElm);
-                                    addToAllVariables(varAction);
-                                    universalConstrains.append(varAction + " ");
+
+                                    if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {
+                                        String varAction = addLayerAndPos(prettyDisplayAction(a, problem), layerIdx,
+                                                layerElm);
+                                        addToAllVariables(varAction);
+                                        universalConstrains.append(varAction + " "); 
+                                    }
+                                    else {
+                                        String varAction = addLayerAndPos(getCliqueAction(), layerIdx,
+                                        IdxNext - 1);
+                                        addToAllVariables(varAction);
+                                        universalConstrains.append("(= " + varAction + " " + this.problem.getActions().indexOf(a) + ") ");
+                                    }
                                 }
                             }
                         }
@@ -1439,10 +1548,18 @@ public class TreeRexEncoder {
 
                             for (Action a : actionsAvailableForThisLayerAndPos) {
                                 if (a.getUnconditionalEffect().getPositiveFluents().get(indexFluent)) {
-                                    String varAction = addLayerAndPos(prettyDisplayAction(a, problem), layerIdx,
-                                            layerElm);
-                                    addToAllVariables(varAction);
-                                    universalConstrains.append(varAction + " ");
+
+                                    if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {
+                                        String varAction = addLayerAndPos(prettyDisplayAction(a, problem), layerIdx,
+                                                layerElm);
+                                        addToAllVariables(varAction);
+                                        universalConstrains.append(varAction + " ");
+                                    } else {
+                                        String varAction = addLayerAndPos(getCliqueAction(), layerIdx,
+                                        IdxNext - 1);
+                                        addToAllVariables(varAction);
+                                        universalConstrains.append("(= " + varAction + " " + this.problem.getActions().indexOf(a) + ") ");
+                                    }
                                 }
                             }
                         }
