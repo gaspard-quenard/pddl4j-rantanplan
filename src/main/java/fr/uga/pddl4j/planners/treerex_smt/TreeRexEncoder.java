@@ -44,7 +44,8 @@ public class TreeRexEncoder {
     private int factsSize;
     private boolean useSASplus;
     public Vector<Layer> layers = new Vector<Layer>();
-    // Dictionnary which map a method to the set of facts that this method can change
+    // Dictionnary which map a method to the set of facts that this method can
+    // change
     private Map<Method, HashSet<Fluent>> dictMethodToFactsChangedByMethod;
     // Dictionary which map a fluent idx to the clique which contains it
     Map<Integer, List<Integer>> dictFluentIdxToClique;
@@ -169,7 +170,8 @@ public class TreeRexEncoder {
             // SASPlusGeneratorDomain.generatlizeInstantiationSASPlusForDomain(problem,
             // cliques);
 
-            // Compute a dictionary which map the fluent Idx to the cliqueIdx to speed up some following calculus
+            // Compute a dictionary which map the fluent Idx to the cliqueIdx to speed up
+            // some following calculus
             for (List<Integer> clique : this.treerex_cliques) {
                 for (Integer fluentIdx : clique) {
                     this.dictFluentIdxToClique.put(fluentIdx, clique);
@@ -190,7 +192,7 @@ public class TreeRexEncoder {
         // Create a dictionary to store the mapping
         Map<Method, HashSet<Fluent>> dict = new HashMap<>();
 
-        // 
+        //
         HashSet<Method> checkedMethods = new HashSet<>();
 
         // Iterate over the initial tasks
@@ -227,12 +229,15 @@ public class TreeRexEncoder {
      * method
      * 
      * @param method the method to analyze
-     * @param d a dictionary mapping methods to the set of fluents that may be modified by the method
+     * @param d      a dictionary mapping methods to the set of fluents that may be
+     *               modified by the method
      * @return a set of fluents that may be modified by the given method
      */
-    HashSet<Fluent> recursiveGetFactsChangedByMethod(Method method, Map<Method, HashSet<Fluent>> d, HashSet<Method> checkedMethods) {
+    HashSet<Fluent> recursiveGetFactsChangedByMethod(Method method, Map<Method, HashSet<Fluent>> d,
+            HashSet<Method> checkedMethods) {
 
-        // If the method has already been analyzed, return the set of fluents it can modify
+        // If the method has already been analyzed, return the set of fluents it can
+        // modify
         if (d.containsKey(method)) {
             return d.get(method);
         }
@@ -245,7 +250,7 @@ public class TreeRexEncoder {
 
         // Iterate over all subtasks of the method
         for (Integer subtaskIdx : method.getSubTasks()) {
-            
+
             // Get the subtask object
             Task subtask = this.problem.getTasks().get(subtaskIdx);
 
@@ -287,17 +292,18 @@ public class TreeRexEncoder {
 
                         // If the method has not already been checked (to prevent infinite recursion)
                         if (!checkedMethods.contains(subMethod)) {
-                        // Call the recursive_get_facts_changed_by_method to get the facts changed by
-                        // this method
-                        factsChangedByMethod
-                                .addAll(recursiveGetFactsChangedByMethod(subMethod, d, checkedMethods));
+                            // Call the recursive_get_facts_changed_by_method to get the facts changed by
+                            // this method
+                            factsChangedByMethod
+                                    .addAll(recursiveGetFactsChangedByMethod(subMethod, d, checkedMethods));
                         }
                     }
                 }
             }
         }
 
-        // Add the mapping from the method to the set of fluents it can modify to the dictionary
+        // Add the mapping from the method to the set of fluents it can modify to the
+        // dictionary
         d.put(method, factsChangedByMethod);
 
         return factsChangedByMethod;
@@ -380,7 +386,6 @@ public class TreeRexEncoder {
 
         return cliqueFluentToDisplay.toString();
     }
-
 
     public String addLayerAndPos(String varToAdd, int layer, int pos) {
         return varToAdd + "__" + Integer.toString(layer) + "_" + Integer.toString(pos);
@@ -509,14 +514,12 @@ public class TreeRexEncoder {
             addToAllVariables(var);
             constrainsInitState.append(
                     "(assert (= " + var + " true))\n");
-        }
-        else {
+        } else {
             var = addLayerAndPos(getCliqueAction(), 0, number_elements_in_first_layer);
             addToAllVariables(var);
             constrainsInitState.append(
                     "(assert (= " + var + " " + this.problem.getActions().size() + " ))\n");
         }
-
 
         lastLayerElm.addBlankAction();
 
@@ -653,14 +656,15 @@ public class TreeRexEncoder {
                     String varActionNextLayer = addLayerAndPos(getCliqueAction(), layerIdx + 1, childLayerElm);
                     int idxAction = this.problem.getActions().indexOf(a);
                     addToAllVariables(varActionNextLayer);
-                    constrainsRule11.append("(assert (=> (= " + varAction + " " + idxAction + ") (= " + varActionNextLayer + " " + idxAction + ")))\n");
+                    constrainsRule11.append("(assert (=> (= " + varAction + " " + idxAction + ") (= "
+                            + varActionNextLayer + " " + idxAction + ")))\n");
                 }
                 childLayerElement.addAction(a);
             }
 
             // Add as well the blank action if this layer can have a blank action
             if (layerElement.canContainsBlankAction()) {
-                if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {  
+                if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {
                     String varBlankAction = addLayerAndPos(getBlankAction(), layerIdx, layerElm);
                     String varBlankActionNextLayer = addLayerAndPos(getBlankAction(), layerIdx + 1, childLayerElm);
                     addToAllVariables(varBlankActionNextLayer);
@@ -669,8 +673,9 @@ public class TreeRexEncoder {
                     String varBlankAction = addLayerAndPos(getCliqueAction(), layerIdx, layerElm);
                     String varBlankActionNextLayer = addLayerAndPos(getCliqueAction(), layerIdx + 1, childLayerElm);
                     int idxBlankAction = this.problem.getActions().size();
-                    addToAllVariables(varBlankActionNextLayer); 
-                    constrainsRule11.append("(assert (=> (= " + varBlankAction + " " + idxBlankAction + ") (= " + varBlankActionNextLayer + " " + idxBlankAction + ")))\n");
+                    addToAllVariables(varBlankActionNextLayer);
+                    constrainsRule11.append("(assert (=> (= " + varBlankAction + " " + idxBlankAction + ") (= "
+                            + varBlankActionNextLayer + " " + idxBlankAction + ")))\n");
                 }
                 childLayerElement.addBlankAction();
             }
@@ -783,11 +788,13 @@ public class TreeRexEncoder {
                         final String varActionNextLayer;
                         if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {
                             varActionNextLayer = addLayerAndPos(prettyDisplayAction(a, problem), layerIdx + 1,
-                            firstPosChildElm + i_subtask);
+                                    firstPosChildElm + i_subtask);
                             constrainsRule13_14_15.append(varActionNextLayer + "))\n");
                         } else {
-                            varActionNextLayer = addLayerAndPos(getCliqueAction(), layerIdx + 1, firstPosChildElm + i_subtask);
-                            constrainsRule13_14_15.append("(= " + varActionNextLayer + " " + this.problem.getActions().indexOf(a) + ")))\n");
+                            varActionNextLayer = addLayerAndPos(getCliqueAction(), layerIdx + 1,
+                                    firstPosChildElm + i_subtask);
+                            constrainsRule13_14_15.append(
+                                    "(= " + varActionNextLayer + " " + this.problem.getActions().indexOf(a) + ")))\n");
                         }
 
                         // Add the action as well to the Tree
@@ -823,9 +830,9 @@ public class TreeRexEncoder {
                     } else {
                         String varBlankAction = addLayerAndPos(getCliqueAction(), layerIdx + 1, firstPosChildElm + i);
                         addToAllVariables(varBlankAction);
-                        constrainsRule13_14_15.append("(assert (=> " + varMethod + " (= " + varBlankAction + " " + this.problem.getActions().size() + ")))\n");
+                        constrainsRule13_14_15.append("(assert (=> " + varMethod + " (= " + varBlankAction + " "
+                                + this.problem.getActions().size() + ")))\n");
                     }
-
 
                     // Add as well the blank action to our layer
                     this.layers.get(layerIdx + 1).layerElements.get(firstPosChildElm + i).addBlankAction();
@@ -884,19 +891,17 @@ public class TreeRexEncoder {
                     varAction = addLayerAndPos(getCliqueAction(), layerIdx, idxElmLayer);
                 }
                 addToAllVariables(varAction);
-                
 
                 if (action.getPrecondition().getPositiveFluents().length()
                         + action.getPrecondition().getNegativeFluents().length() > 0) {
 
-                    if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {    
+                    if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {
                         universalConstrains.append("(assert (=> "
                                 + varAction + " (and ");
                     } else {
                         universalConstrains.append("(assert (=> (= "
-                        + varAction + " " + this.problem.getActions().indexOf(action) + ") (and "); 
+                                + varAction + " " + this.problem.getActions().indexOf(action) + ") (and ");
                     }
-
 
                     // Do it for SAS+ var first
                     if (this.useSASplus) {
@@ -1041,15 +1046,15 @@ public class TreeRexEncoder {
                     universalConstrains.append(")))\n");
                 }
 
-                // Add the effects of the actions as well (add true to prevent errors caused by incorrect SMT file format when there are no effects to the action)
+                // Add the effects of the actions as well (add true to prevent errors caused by
+                // incorrect SMT file format when there are no effects to the action)
                 if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {
                     universalConstrains.append("(assert (=> "
-                    + varAction + " (and true ");
+                            + varAction + " (and true ");
                 } else {
                     universalConstrains.append("(assert (=> (= "
-                    + varAction + " " + this.problem.getActions().indexOf(action) + ") (and true "); 
+                            + varAction + " " + this.problem.getActions().indexOf(action) + ") (and true ");
                 }
-
 
                 if (this.useSASplus) {
                     for (List<Integer> clique : this.treerex_cliques) {
@@ -1231,18 +1236,20 @@ public class TreeRexEncoder {
                 // this.problem.getActions().get(this.problem.getTaskResolvers().get(subtask).get(0));
                 // }
 
-
-                // Add as well all the predicates that this method can change in the next element of the array
+                // Add as well all the predicates that this method can change in the next
+                // element of the array
                 for (Fluent fluent : this.dictMethodToFactsChangedByMethod.get(method)) {
 
                     int fluentIdx = this.problem.getFluents().indexOf(fluent);
 
                     if (this.dictFluentIdxToClique.containsKey(fluentIdx)) {
-                        // This method can possibly change this fluent, we have to add it to the fluent that can be modified
-                        this.layers.get(layerIdx).layerElements.get(idxElmLayer + 1).addClique(this.dictFluentIdxToClique.get(fluentIdx), layerIdx, idxElmLayer + 1);
+                        // This method can possibly change this fluent, we have to add it to the fluent
+                        // that can be modified
+                        this.layers.get(layerIdx).layerElements.get(idxElmLayer + 1)
+                                .addClique(this.dictFluentIdxToClique.get(fluentIdx), layerIdx, idxElmLayer + 1);
                     } else {
                         this.layers.get(layerIdx).layerElements.get(idxElmLayer + 1).addPositiveFluent(fluent);
-                    }                    
+                    }
                 }
             }
 
@@ -1255,17 +1262,17 @@ public class TreeRexEncoder {
                 } else {
                     varAction = addLayerAndPos(getCliqueAction(), layerIdx, idxElmLayer);
                 }
-                
+
                 String varPrimitivePredicate = addLayerAndPos(getPrimitivePredicate(), layerIdx, idxElmLayer);
                 // addToAllVariables(varAction);
                 addToAllVariables(varPrimitivePredicate);
                 if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {
                     universalConstrains.append("(assert (=> "
-                    + varAction + " ");
-                    
+                            + varAction + " ");
+
                 } else {
                     universalConstrains.append("(assert (=> (= "
-                    + varAction + " " + this.problem.getActions().indexOf(action) + ") ");
+                            + varAction + " " + this.problem.getActions().indexOf(action) + ") ");
                 }
 
                 universalConstrains.append(varPrimitivePredicate + "))\n");
@@ -1293,15 +1300,16 @@ public class TreeRexEncoder {
                 if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {
                     universalConstrains.append("(assert (=> " + varBlankAction + " " + varPrimitivePredicate + "))\n");
                 } else {
-                    universalConstrains.append("(assert (=> (= " + varBlankAction + " " + this.problem.getActions().size() + ") " + varPrimitivePredicate + "))\n");
+                    universalConstrains.append("(assert (=> (= " + varBlankAction + " "
+                            + this.problem.getActions().size() + ") " + varPrimitivePredicate + "))\n");
                 }
-                
+
             }
 
             // Rule 9
             universalConstrains.append("; rule 9: At most one action\n");
             if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {
-            for (int i = 0; i < nbAction; i++) {
+                for (int i = 0; i < nbAction; i++) {
                     Action a1 = availableActionsForThisLayerAndPos.get(i);
                     String varAction1 = addLayerAndPos(prettyDisplayAction(a1, problem), layerIdx, idxElmLayer);
                     addToAllVariables(varAction1);
@@ -1316,11 +1324,13 @@ public class TreeRexEncoder {
                     if (this.layers.get(layerIdx).layerElements.get(idxElmLayer).canContainsBlankAction()) {
                         String varBlankAction = addLayerAndPos(getBlankAction(), layerIdx, idxElmLayer);
                         addToAllVariables(varBlankAction);
-                        universalConstrains.append("(assert (or (not " + varAction1 + ") (not " + varBlankAction + ")))\n");
+                        universalConstrains
+                                .append("(assert (or (not " + varAction1 + ") (not " + varBlankAction + ")))\n");
                     }
                 }
             } else {
-                universalConstrains.append("; No need to implement when we use one variable for all actions possible in a position layer...\n");
+                universalConstrains.append(
+                        "; No need to implement when we use one variable for all actions possible in a position layer...\n");
             }
         }
 
@@ -1371,11 +1381,12 @@ public class TreeRexEncoder {
                         this.addToAllVariables(varClique);
                         this.addToAllVariables(varNextClique);
                         universalConstrains.append("(assert (=> (not (= " + varClique + " " + varNextClique + ")) ");
-                    
+
                         universalConstrains.append("(or ");
-                        // 
+                        //
                         for (int i = idxElmLayer; i < IdxNext; i++) {
-                            universalConstrains.append(" (not " + addLayerAndPos(getPrimitivePredicate(), layerIdx, i) + ") ");
+                            universalConstrains
+                                    .append(" (not " + addLayerAndPos(getPrimitivePredicate(), layerIdx, i) + ") ");
                         }
                         // Check for each action that can modify this clique
                         for (Integer idxFluent : clique) {
@@ -1407,14 +1418,15 @@ public class TreeRexEncoder {
 
                                     if (!this.useOneVarToEncodeAllActionsAtLayerAndPos) {
                                         String varAction = addLayerAndPos(prettyDisplayAction(a, problem), layerIdx,
-                                        IdxNext - 1);
+                                                IdxNext - 1);
                                         addToAllVariables(varAction);
                                         universalConstrains.append(varAction + " ");
                                     } else {
                                         String varAction = addLayerAndPos(getCliqueAction(), layerIdx,
-                                        IdxNext - 1);
+                                                IdxNext - 1);
                                         addToAllVariables(varAction);
-                                        universalConstrains.append("(= " + varAction + " " + this.problem.getActions().indexOf(a) + ") ");
+                                        universalConstrains.append(
+                                                "(= " + varAction + " " + this.problem.getActions().indexOf(a) + ") ");
                                     }
 
                                 }
@@ -1462,10 +1474,9 @@ public class TreeRexEncoder {
                         universalConstrains.append("(or ");
 
                         for (int i = idxElmLayer; i < IdxNext; i++) {
-                            universalConstrains.append(" (not " + addLayerAndPos(getPrimitivePredicate(), layerIdx, i) + ") ");
+                            universalConstrains
+                                    .append(" (not " + addLayerAndPos(getPrimitivePredicate(), layerIdx, i) + ") ");
                         }
-
-                        
 
                         // It means that an action has occured to change this fact. The action must have
                         // occured between the two layerElm
@@ -1484,13 +1495,13 @@ public class TreeRexEncoder {
                                         String varAction = addLayerAndPos(prettyDisplayAction(a, problem), layerIdx,
                                                 layerElm);
                                         addToAllVariables(varAction);
-                                        universalConstrains.append(varAction + " "); 
-                                    }
-                                    else {
+                                        universalConstrains.append(varAction + " ");
+                                    } else {
                                         String varAction = addLayerAndPos(getCliqueAction(), layerIdx,
-                                        IdxNext - 1);
+                                                IdxNext - 1);
                                         addToAllVariables(varAction);
-                                        universalConstrains.append("(= " + varAction + " " + this.problem.getActions().indexOf(a) + ") ");
+                                        universalConstrains.append(
+                                                "(= " + varAction + " " + this.problem.getActions().indexOf(a) + ") ");
                                     }
                                 }
                             }
@@ -1537,7 +1548,8 @@ public class TreeRexEncoder {
                         universalConstrains.append("(or ");
 
                         for (int i = idxElmLayer; i < IdxNext; i++) {
-                            universalConstrains.append(" (not " + addLayerAndPos(getPrimitivePredicate(), layerIdx, i) + ") ");
+                            universalConstrains
+                                    .append(" (not " + addLayerAndPos(getPrimitivePredicate(), layerIdx, i) + ") ");
                         }
 
                         for (int layerElm = idxElmLayer; layerElm < IdxNext; layerElm++) {
@@ -1556,9 +1568,10 @@ public class TreeRexEncoder {
                                         universalConstrains.append(varAction + " ");
                                     } else {
                                         String varAction = addLayerAndPos(getCliqueAction(), layerIdx,
-                                        IdxNext - 1);
+                                                IdxNext - 1);
                                         addToAllVariables(varAction);
-                                        universalConstrains.append("(= " + varAction + " " + this.problem.getActions().indexOf(a) + ") ");
+                                        universalConstrains.append(
+                                                "(= " + varAction + " " + this.problem.getActions().indexOf(a) + ") ");
                                     }
                                 }
                             }
