@@ -65,6 +65,7 @@ public class TreeRexEncoder {
         this.allIntVariables = new Vector<String>();
         this.allClauses = new StringBuilder();
         this.useSASplus = useSASplus;
+        this.dictFluentIdxToClique = new HashMap<>();
 
         long beginPreprocessingTime = System.currentTimeMillis();
         this.dictMethodToFactsChangedByMethod = generateDictMethodsToFactsChangedByMethod();
@@ -164,13 +165,12 @@ public class TreeRexEncoder {
             System.out.println("------------");
             // SASPlusGeneratorDomain.generatlizeInstantiationSASPlusForDomain(problem,
             // cliques);
-        }
 
-        // Compute a dictionary which map the fluent Idx to the cliqueIdx to speed up some following calculus
-        this.dictFluentIdxToClique = new HashMap<>();
-        for (List<Integer> clique : this.treerex_cliques) {
-            for (Integer fluentIdx : clique) {
-                this.dictFluentIdxToClique.put(fluentIdx, clique);
+            // Compute a dictionary which map the fluent Idx to the cliqueIdx to speed up some following calculus
+            for (List<Integer> clique : this.treerex_cliques) {
+                for (Integer fluentIdx : clique) {
+                    this.dictFluentIdxToClique.put(fluentIdx, clique);
+                }
             }
         }
     }
