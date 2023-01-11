@@ -43,9 +43,9 @@ public class TreeRexEncoder {
     private int actionsSize;
     private int factsSize;
     public Vector<Layer> layers = new Vector<Layer>();
-    // Dictionnary which map a method to the set of facts that this method can
+    // Array which map a method idx (the idx of the array) to the set of facts idxs that this method can
     // change
-    private Map<Method, HashSet<Fluent>> dictMethodToFactsChangedByMethod;
+    private Set<Integer>[] methodIdxToFactsIdxChangedByMethod;
     // Dictionary which map a fluent idx to the clique which contains it
     Map<Integer, List<Integer>> dictFluentIdxToClique;
 
@@ -69,8 +69,9 @@ public class TreeRexEncoder {
         this.dictFluentIdxToClique = new HashMap<>();
         this.optimizationsToUse = optimizationsToUse;
 
+        System.out.println("Do some preprocessing...");
         long beginPreprocessingTime = System.currentTimeMillis();
-        this.dictMethodToFactsChangedByMethod = generateDictMethodsToFactsChangedByMethod();
+        methodIdxToFactsIdxChangedByMethod = generateDictMethodsToFactsChangedByMethod();
         long deltaEncodingTime = System.currentTimeMillis() - beginPreprocessingTime;
         System.out.println("Delta preprocessing time " + deltaEncodingTime + " ms");
 
@@ -186,12 +187,14 @@ public class TreeRexEncoder {
      * @return a dictionary mapping methods to the set of facts that can be changed
      *         by the method
      */
-    public Map<Method, HashSet<Fluent>> generateDictMethodsToFactsChangedByMethod() {
-        // Create a dictionary to store the mapping
-        Map<Method, HashSet<Fluent>> dict = new HashMap<>();
+    public Set<Integer>[] generateDictMethodsToFactsChangedByMethod() {
+        // Create a list where each element of id i contains the set of the index of facts which can be changed by 
+        // the method with index i
+        int numberMethods = this.problem.getMethods().size();
+        Set<Integer>[] dict = (Set<Integer>[]) new Set[numberMethods];
 
         //
-        HashSet<Method> checkedMethods = new HashSet<>();
+        HashSet<Integer> checkedMethods = new HashSet<>();
 
         // Iterate over the initial tasks
         this.problem.getInitialTaskNetwork().getTasks().forEach(taskIndex -> {
@@ -199,7 +202,7 @@ public class TreeRexEncoder {
             this.problem.getMethods().stream()
                     .filter(method -> method.getTask() == taskIndex)
                     // Get the set of facts the method can change and add it to the dictionary
-                    .forEach(method -> recursiveGetFactsChangedByMethod(method, dict, checkedMethods));
+                    .forEach(method -> recursiveGetFactsChangedByMethod(this.problem.getMethods().indexOf(method), dict, checkedMethods));
         });
 
         // printDictMethodsToFactsChangedByMethod(dict);
@@ -215,11 +218,16 @@ public class TreeRexEncoder {
      * @param dict a dictionary mapping methods to the set of facts that can be
      *             changed by the method
      */
-    public void printDictMethodsToFactsChangedByMethod(Map<Method, HashSet<Fluent>> dict) {
-        dict.forEach((method, factsChangedByMethod) -> {
-            System.out.println("Facts that can be changed by the method: " + this.prettyDisplayMethod(method, problem));
-            factsChangedByMethod.forEach(fluent -> System.out.println("    " + prettyDisplayFluent(fluent, problem)));
-        });
+    public void printDictMethodsToFactsChangedByMethod(Set<Integer>[] dict) {
+        for (int idxMethod = 0; idxMethod < this.problem.getMethods().size(); idxMethod++) {
+            if (dict[idxMethod] != null) {
+                Method method = this.problem.getMethods().get(idxMethod);
+                System.out.println("Facts that can be changed by the method: " + this.prettyDisplayMethod(method, problem));
+                for (Integer idxFluent : dict[idxMethod]) {
+                    System.out.println("    " + prettyDisplayFluent(this.problem.getFluents().get(idxFluent), problem));
+                }
+            }
+        }
     }
 
     /**
@@ -231,23 +239,23 @@ public class TreeRexEncoder {
      *               modified by the method
      * @return a set of fluents that may be modified by the given method
      */
-    HashSet<Fluent> recursiveGetFactsChangedByMethod(Method method, Map<Method, HashSet<Fluent>> d,
-            HashSet<Method> checkedMethods) {
+    Set<Integer> recursiveGetFactsChangedByMethod(Integer idxMethod,Set<Integer>[] d,
+            Set<Integer> checkedMethods) {
 
         // If the method has already been analyzed, return the set of fluents it can
         // modify
-        if (d.containsKey(method)) {
-            return d.get(method);
+        if (d[idxMethod] != null) {
+            return d[idxMethod];
         }
 
         // Add the method to the set of checked methods
-        checkedMethods.add(method);
+        checkedMethods.add(idxMethod);
 
         // Set to store the fluents that may be modified by the method
-        HashSet<Fluent> factsChangedByMethod = new HashSet<Fluent>();
+        Set<Integer> factsChangedByMethod = new HashSet<Integer>();
 
         // Iterate over all subtasks of the method
-        for (Integer subtaskIdx : method.getSubTasks()) {
+        for (Integer subtaskIdx : this.problem.getMethods().get(idxMethod).getSubTasks()) {
 
             // Get the subtask object
             Task subtask = this.problem.getTasks().get(subtaskIdx);
@@ -266,16 +274,14 @@ public class TreeRexEncoder {
 
                 for (int p = actionEffectPositiveFluents.nextSetBit(0); p >= 0; p = actionEffectPositiveFluents
                         .nextSetBit(p + 1)) {
-                    Fluent f = problem.getFluents().get(p);
-                    factsChangedByMethod.add(f);
+                    factsChangedByMethod.add(p);
                     actionEffectPositiveFluents.set(p);
                 }
 
                 BitVector actionNegativesFluents = action.getUnconditionalEffect().getNegativeFluents();
                 for (int p = actionNegativesFluents.nextSetBit(0); p >= 0; p = actionNegativesFluents
                         .nextSetBit(p + 1)) {
-                    Fluent f = problem.getFluents().get(p);
-                    factsChangedByMethod.add(f);
+                    factsChangedByMethod.add(p);
                     actionNegativesFluents.set(p);
                 }
 
@@ -288,12 +294,14 @@ public class TreeRexEncoder {
                 for (Method subMethod : problem.getMethods()) {
                     if (subMethod.getTask() == subtaskIdx) {
 
+                        Integer idxSubMethod = this.problem.getMethods().indexOf(subMethod);
+
                         // If the method has not already been checked (to prevent infinite recursion)
-                        if (!checkedMethods.contains(subMethod)) {
+                        if (!checkedMethods.contains(idxSubMethod)) {
                             // Call the recursive_get_facts_changed_by_method to get the facts changed by
                             // this method
                             factsChangedByMethod
-                                    .addAll(recursiveGetFactsChangedByMethod(subMethod, d, checkedMethods));
+                                    .addAll(recursiveGetFactsChangedByMethod(idxSubMethod, d, checkedMethods));
                         }
                     }
                 }
@@ -302,7 +310,8 @@ public class TreeRexEncoder {
 
         // Add the mapping from the method to the set of fluents it can modify to the
         // dictionary
-        d.put(method, factsChangedByMethod);
+        // d.put(method, factsChangedByMethod);
+        d[idxMethod] = factsChangedByMethod;
 
         return factsChangedByMethod;
     }
@@ -1266,24 +1275,12 @@ public class TreeRexEncoder {
 
                 universalConstrains.append(")))\n");
 
-                // // We also need to add the fact that could happen after a method is used into
-                // our tree (for now, do just the clique for test)
-                // // TODO HERE WE NEED TO ADD THE EFFECTS OF A METHOD (HOW IS IT POSSIBLE ??)
-                // for (int i_subtask = 0; i_subtask < method.getSubTasks().size(); i_subtask++)
-                // {
-                // int subtask = method.getSubTasks().get(i_subtask);
-
-                // if (this.problem.getTasks().get(subtask).isPrimtive()) {
-
-                // Action a =
-                // this.problem.getActions().get(this.problem.getTaskResolvers().get(subtask).get(0));
-                // }
 
                 // Add as well all the predicates that this method can change in the next
-                // element of the array
-                for (Fluent fluent : this.dictMethodToFactsChangedByMethod.get(method)) {
+                // element of the array                
+                for (Integer fluentIdx : this.methodIdxToFactsIdxChangedByMethod[this.problem.getMethods().indexOf(method)]) {
 
-                    int fluentIdx = this.problem.getFluents().indexOf(fluent);
+                    Fluent fluent = this.problem.getFluents().get(fluentIdx);
 
                     if (this.dictFluentIdxToClique.containsKey(fluentIdx)) {
                         // This method can possibly change this fluent, we have to add it to the fluent
