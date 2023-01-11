@@ -151,7 +151,7 @@ public class TreeRex extends AbstractHTNPlanner {
      * @return the extracted plan and hierarchy
      */
     private SequentialPlan extractPlanAndHierarchyFromSolver(Problem problem, String outputSMTSolver,
-            TreeRexEncoder encoder, int layerIdx, boolean useOneVarToEncodeAllActionsAtLayerAndPos) {
+            TreeRexEncoder encoder, int layerIdx, TreeRexOptimization optimizationsToUse) {
 
         SequentialPlan p = new SequentialPlan();
         Hierarchy hierarchy = new Hierarchy();
@@ -170,7 +170,7 @@ public class TreeRex extends AbstractHTNPlanner {
         // Only keep the actions and methods which are true (do not keep blank action as
         // well)
 
-        if (!useOneVarToEncodeAllActionsAtLayerAndPos) {
+        if (!optimizationsToUse.useOneVarToEncodeAllActionsAtLayerAndPos) {
             lValues = Arrays.asList(lValues.stream().filter(s -> ((s.contains(" ACTION_") || s.contains(" METHOD_"))
             && s.contains(" true)") && !s.contains("_Blank_"))).toArray(String[]::new));
         } else {
@@ -208,7 +208,7 @@ public class TreeRex extends AbstractHTNPlanner {
                 boolean methodIsTrue = lValues.contains(fullLineMethodTrueInSMTFile);
                 if (methodIsTrue) {
                     // Get the decomposition of this method
-                    recursiveGetHierarchyMethod(problem, lValues, encoder, hierarchy, m, 0, i, useOneVarToEncodeAllActionsAtLayerAndPos);
+                    recursiveGetHierarchyMethod(problem, lValues, encoder, hierarchy, m, 0, i, optimizationsToUse);
                     break; // Only one method can be true
                 }
             }
@@ -240,7 +240,7 @@ public class TreeRex extends AbstractHTNPlanner {
      * @param position             the position of the method within its layer
      */
     void recursiveGetHierarchyMethod(Problem problem, List<String> linesOutputSMTSolver,
-            TreeRexEncoder encoder, Hierarchy hierarchy, Method method, Integer layer, Integer position, boolean useOneVarToEncodeAllActionsAtLayerAndPos) {
+            TreeRexEncoder encoder, Hierarchy hierarchy, Method method, Integer layer, Integer position, TreeRexOptimization optimizationsToUse) {
 
         // Get an unique ID for the method depending of its layer and position
         Integer methodID = encoder.GetUniqueIDForLayerAndPosition(layer, position);
@@ -269,7 +269,7 @@ public class TreeRex extends AbstractHTNPlanner {
                 // position
                 final String lineActionTrueInSMTFile;
 
-                if (!useOneVarToEncodeAllActionsAtLayerAndPos) {
+                if (!optimizationsToUse.useOneVarToEncodeAllActionsAtLayerAndPos) {
                     lineActionTrueInSMTFile = "(define-fun " + encoder.addLayerAndPos(encoder.prettyDisplayAction(action, problem),
                     layerChildMethod, positionChildMethod) + " () Bool true)";
                 } else {
@@ -315,7 +315,7 @@ public class TreeRex extends AbstractHTNPlanner {
 
                             // Recursive call this function to decompose it further
                             recursiveGetHierarchyMethod(problem, linesOutputSMTSolver, encoder, hierarchy, subMethod,
-                                    layerChildMethod, positionChildMethod, useOneVarToEncodeAllActionsAtLayerAndPos);
+                                    layerChildMethod, positionChildMethod, optimizationsToUse);
 
                             break; // There can be only one method which is true as the decomposition
                         }
@@ -358,9 +358,10 @@ public class TreeRex extends AbstractHTNPlanner {
         // Use SAS+ encoding
         boolean useSASplus = true;
 
-        boolean useOneVarToEncodeAllActionsAtLayerAndPos = false;
+        // Indicate which optimizations will be used when using the TreeRex encoder
+        TreeRexOptimization optimizationsToUse = new TreeRexOptimization(useSASplus, true, false);
 
-        // Initialize the variables which will store the encodning time and solving time
+        // Initialize the variables which will store the encoding time and solving time
         long deltaInitializingTreeRexTime = 0;
         long deltaEncodingTime = 0;
         long deltaSolvingTime = 0;
@@ -368,7 +369,7 @@ public class TreeRex extends AbstractHTNPlanner {
         long beginInitializeTreeRexTime = System.currentTimeMillis();
 
         // Initialize the encoder
-        TreeRexEncoder encoder = new TreeRexEncoder(problem, useSASplus, useOneVarToEncodeAllActionsAtLayerAndPos);
+        TreeRexEncoder encoder = new TreeRexEncoder(problem, optimizationsToUse);
 
         // Record the encoding time for the initial layer
         deltaInitializingTreeRexTime = System.currentTimeMillis() - beginInitializeTreeRexTime;
@@ -475,7 +476,7 @@ public class TreeRex extends AbstractHTNPlanner {
             }
 
             LOGGER.info("Extract the hierarchy of the plan...\n");
-            SequentialPlan plan = extractPlanAndHierarchyFromSolver(problem, responseSMT, encoder, layerIdx, useOneVarToEncodeAllActionsAtLayerAndPos);
+            SequentialPlan plan = extractPlanAndHierarchyFromSolver(problem, responseSMT, encoder, layerIdx, optimizationsToUse);
 
             // Verify if the plan is valid
             LOGGER.info("Check if plan is valid...\n");
