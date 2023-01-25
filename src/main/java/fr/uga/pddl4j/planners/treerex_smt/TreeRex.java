@@ -24,6 +24,9 @@ import java.io.RandomAccessFile;
 import java.io.InputStreamReader;
 
 import fr.uga.pddl4j.parser.DefaultParsedProblem;
+import fr.uga.pddl4j.parser.ParsedDomain;
+import fr.uga.pddl4j.parser.Parser;
+import fr.uga.pddl4j.parser.SAS_Plus.SASplusLiftedFamGroup;
 import fr.uga.pddl4j.plan.Hierarchy;
 import fr.uga.pddl4j.plan.Plan;
 import fr.uga.pddl4j.plan.SequentialPlan;
@@ -57,6 +60,8 @@ public class TreeRex extends AbstractHTNPlanner {
 
     private String filenameSMT = "test.SMT";
 
+    private TreeRexOptimization optimizationsTouse = new TreeRexOptimization(false, false, false);
+
     /**
      * Instantiates the planning problem from a parsed problem.
      *
@@ -68,7 +73,35 @@ public class TreeRex extends AbstractHTNPlanner {
     public Problem instantiate(DefaultParsedProblem problem) {
         final Problem pb = new DefaultProblem(problem);
         pb.instantiate();
+        // long beginComputeSASplus = System.currentTimeMillis();
+        // System.out.println("Start to determinate lifted fam mutex..");
+        // SASplusLiftedFamGroup.determinateLiftedFamGroups(pb);
+        // long deltabeginComputeSASplus = System.currentTimeMillis() - beginComputeSASplus;
+        // System.out.println("Time to compute mutex: " + deltabeginComputeSASplus + " ms");
         return pb;
+    }
+
+
+    /**
+     * Command line option to set the full path of the file to store the plan found.
+     * 
+     * @param outputFullPathFile Full path of the file to store the plan found
+     */
+    @CommandLine.Option(names = { "-s",
+            "--use-sas-plus" }, description = "Use SAS+")
+    public void useSASPlus(boolean _) {
+        this.optimizationsTouse.useSASplus = true;
+    }
+
+    /**
+     * Command line option to set the full path of the file to store the plan found.
+     * 
+     * @param outputFullPathFile Full path of the file to store the plan found
+     */
+    @CommandLine.Option(names = { "-o",
+            "--use-one-var-per-action-layer-element" }, description = "Use one integer variable to encode all possible actions for each layer element")
+    public void useOneVarToEncodeAllActionsAtLayerAndPos(boolean _) {
+        this.optimizationsTouse.useOneVarToEncodeAllActionsAtLayerAndPos = true;
     }
 
     /**
@@ -95,6 +128,8 @@ public class TreeRex extends AbstractHTNPlanner {
         for (String var : allIntVariables) {
             writer.write("(declare-const " + var + " Int)\n");
         }
+
+        
 
         // Write the clauses
         writer.write(clauses);
@@ -355,11 +390,14 @@ public class TreeRex extends AbstractHTNPlanner {
     @Override
     public Plan solve(Problem problem) {
 
-        // Use SAS+ encoding
-        boolean useSASplus = true;
-
         // Indicate which optimizations will be used when using the TreeRex encoder
-        TreeRexOptimization optimizationsToUse = new TreeRexOptimization(useSASplus, true, false);
+        // this.optimizationsTouse.useSASplus = false;
+        // this.optimizationsTouse.useOneVarToEncodeAllActionsAtLayerAndPos = false;
+        // this.optimizationsTouse.useOneVarToEncodeAllMethodsAtLayerAndPos = false;
+
+        // Show which optimizations are currently used
+        this.optimizationsTouse.displayCurrentUsedOptimizations();
+
 
         // Initialize the variables which will store the encoding time and solving time
         long deltaInitializingTreeRexTime = 0;
@@ -369,7 +407,7 @@ public class TreeRex extends AbstractHTNPlanner {
         long beginInitializeTreeRexTime = System.currentTimeMillis();
 
         // Initialize the encoder
-        TreeRexEncoder encoder = new TreeRexEncoder(problem, optimizationsToUse);
+        TreeRexEncoder encoder = new TreeRexEncoder(problem, this.optimizationsTouse);
 
         // Record the encoding time for the initial layer
         deltaInitializingTreeRexTime = System.currentTimeMillis() - beginInitializeTreeRexTime;
@@ -378,7 +416,7 @@ public class TreeRex extends AbstractHTNPlanner {
 
         // Initialize the layer index and maximum number of layers
         int layerIdx = 0;
-        int maxLayers = 10;
+        int maxLayers = 15;
 
 
         // Initialize the encoding time for the initial layer
@@ -476,7 +514,7 @@ public class TreeRex extends AbstractHTNPlanner {
             }
 
             LOGGER.info("Extract the hierarchy of the plan...\n");
-            SequentialPlan plan = extractPlanAndHierarchyFromSolver(problem, responseSMT, encoder, layerIdx, optimizationsToUse);
+            SequentialPlan plan = extractPlanAndHierarchyFromSolver(problem, responseSMT, encoder, layerIdx, this.optimizationsTouse);
 
             // Verify if the plan is valid
             LOGGER.info("Check if plan is valid...\n");
@@ -490,6 +528,10 @@ public class TreeRex extends AbstractHTNPlanner {
 
             if (planIsValid) {
                 LOGGER.info("Plan is valid !\n");
+
+                LOGGER.info("Preprocessing time (ms): " + deltaInitializingTreeRexTime + "\n");
+                LOGGER.info("Encoding time (ms): " + this.getStatistics().getTimeToEncode() + "\n");
+                LOGGER.info("Solving time (ms): " + this.getStatistics().getTimeToSearch() + "\n");
                 return plan;
             } else {
                 LOGGER.error("Plan is not valid !\n");
