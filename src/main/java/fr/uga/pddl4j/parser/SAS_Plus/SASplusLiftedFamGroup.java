@@ -32,208 +32,6 @@ import fr.uga.pddl4j.problem.Problem;
 import fr.uga.pddl4j.util.BitSet;
 import fr.uga.pddl4j.util.BitVector;
 
-class AtomVariable {
-
-    public static int nbAtomVariable;
-
-    public int id;
-    public boolean isCountedVar;
-    public int inherit;
-    public String typeName;
-    public String value; // Get a specific value when we unify a Candidate
-
-    AtomVariable(String typeName, boolean isCountedVar) {
-        AtomVariable.nbAtomVariable++;
-        this.id = AtomVariable.nbAtomVariable;
-        this.typeName = typeName;
-        this.inherit = -1;
-        this.isCountedVar = isCountedVar;
-        this.value = null;
-    }
-
-    // Copy constructor
-    AtomVariable(AtomVariable source) {
-        AtomVariable.nbAtomVariable++;
-        this.id = AtomVariable.nbAtomVariable;
-        this.isCountedVar = source.isCountedVar;
-        this.inherit = source.inherit;
-        this.typeName = source.typeName;
-        this.value = source.value;
-    }
-
-    @Override
-    public String toString() {
-        StringBuilder sb = new StringBuilder();
-        if (this.isCountedVar) {
-
-            sb.append("C");
-        } else {
-            sb.append("V");
-        }
-        sb.append(this.id + ":" + this.typeName);
-        return sb.toString();
-    }
-}
-
-class AtomCandidate {
-
-    public String predSymbolName;
-    public Vector<Integer> paramsId; // Index of the variable used of the parent Candidate for each parameter
-    // public PddlCondAtom cond;
-    public int isExactlyOne;
-    public int isStatic;
-    public Candidate candidateParent;
-
-    public AtomCandidate(Candidate candidateParent, String predSymbolName) {
-        this.candidateParent = candidateParent;
-        this.predSymbolName = predSymbolName;
-        this.paramsId = new Vector<Integer>();
-    }
-
-    // // Copy constructor
-    public AtomCandidate(AtomCandidate source) {
-        this.predSymbolName = source.predSymbolName;
-        this.paramsId = new Vector<Integer>();
-        for (Integer paramId : source.paramsId) {
-            this.paramsId.add(paramId);
-        }
-        this.isExactlyOne = source.isExactlyOne;
-        this.isStatic = source.isStatic;
-    }
-
-    @Override
-    public String toString() {
-        StringBuilder sb = new StringBuilder();
-        sb.append(predSymbolName + " ");
-        for (Integer paramId : this.paramsId) {
-            sb.append(this.candidateParent.variables.get(paramId) + " ");
-        }
-        return sb.toString();
-    }
-}
-
-class Candidate {
-    public int id; // ID of the candidate
-    public Vector<AtomCandidate> mutexGroup;
-    public Vector<AtomVariable> variables; // Set of variables which will be taken by the atoms of the candidate
-    public boolean eachPredOnlyOnce; /* !< True if each predicate is there only once */
-    public int refinedFrom; /* !< ID of the candidate this was refined from */
-    public boolean refinedVar; /* !< True if refined by changing variables */
-    public boolean refinedType; /* !< True if refined by changing types */
-    public boolean refinedByExtend; /* !< True if refined by adding predicates */
-    public int refinedByExtendPred;
-
-    Candidate() {
-        this.mutexGroup = new Vector<AtomCandidate>();
-        this.variables = new Vector<>();
-        this.refinedFrom = -1;
-        this.refinedVar = false;
-        this.refinedType = false;
-        this.refinedByExtend = false;
-        this.eachPredOnlyOnce = true;
-        this.refinedByExtendPred = -1;
-    }
-
-    // Copy constructor
-    public Candidate(Candidate source) {
-        this.id = source.id;
-        this.mutexGroup = new Vector<AtomCandidate>();
-        for (AtomCandidate sourceAtomCandidate : source.mutexGroup) {
-            AtomCandidate cpy = new AtomCandidate(sourceAtomCandidate);
-            cpy.candidateParent = this;
-            this.mutexGroup.add(cpy);
-        }
-        this.variables = new Vector<AtomVariable>();
-        for (AtomVariable var : source.variables) {
-            this.variables.add(new AtomVariable(var));
-        }
-        this.eachPredOnlyOnce = source.eachPredOnlyOnce;
-        this.refinedFrom = source.refinedFrom;
-        this.refinedVar = source.refinedVar;
-        this.refinedType = source.refinedType;
-        this.refinedByExtend = source.refinedByExtend;
-        this.refinedByExtendPred = source.refinedByExtendPred;
-    }
-
-    /**
-     * 
-     * Determines if a given predicate is contained within the mutex group of
-     * this candidate.
-     * 
-     * @param predicateName The name of the predicate to check for containment in
-     *                      the mutex group
-     * @return true if the predicate is contained within the mutex group, false
-     *         otherwise
-     */
-    public boolean hasPredicateInMutexGroup(String predicateName) {
-        for (AtomCandidate atomCandidate : mutexGroup) {
-            if (atomCandidate.predSymbolName.equals(predicateName)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    @Override
-    public String toString() {
-        StringBuilder sb = new StringBuilder();
-        // sb.append("Candidate:" + "\n");
-        sb.append("{ ");
-        for (AtomCandidate pred : this.mutexGroup) {
-            sb.append(pred);
-        }
-        sb.append("}\n");
-        return sb.toString();
-    }
-
-    /**
-     * Generates a unique string representation of a candidate (two identical
-     * candidate will always have the same string representation)
-     *
-     * @return a string representation of the candidate
-     */
-    public String getUniqueStringRepresentation() {
-        StringBuilder candidateString = new StringBuilder();
-
-        // Sort the array of mutexGroup by predSymbolName
-        Collections.sort(this.mutexGroup, new Comparator<AtomCandidate>() {
-            @Override
-            public int compare(AtomCandidate a1, AtomCandidate a2) {
-                return a1.predSymbolName.compareTo(a2.predSymbolName);
-            }
-        });
-
-        // Variables that have already been seen
-        List<Integer> seenVariables = new ArrayList<>();
-        candidateString.append("{");
-        for (int i = 0; i < this.mutexGroup.size(); i++) {
-            AtomCandidate pred = this.mutexGroup.get(i);
-            candidateString.append(pred.predSymbolName);
-            for (Integer variableIdx : pred.paramsId) {
-                AtomVariable variable = this.variables.get(variableIdx);
-                if (variable.isCountedVar) {
-                    candidateString.append(" C");
-                } else {
-                    candidateString.append(" V");
-                }
-                if (seenVariables.contains(variableIdx)) {
-                    candidateString.append(seenVariables.indexOf(variableIdx));
-                } else {
-                    candidateString.append(seenVariables.size());
-                    seenVariables.add(variableIdx);
-                }
-                candidateString.append(":" + variable.typeName);
-            }
-            if (i < this.mutexGroup.size() - 1) {
-                candidateString.append(", ");
-            }
-        }
-        candidateString.append("}");
-
-        return candidateString.toString();
-    }
-
-}
 
 class GroundCandidate {
     public String schemaCandidate;
@@ -254,7 +52,7 @@ class GroundCandidate {
 public class SASplusLiftedFamGroup {
 
     private static Queue<Candidate> invariantCandidateArr;
-    private static HashSet<Candidate> candidatesProved;
+    public static HashSet<Candidate> candidatesProved;
     private static HashSet<String> candidateAlreadyChecked;
     // A dictionary which map the name of a type to all the parent of this type
     private static Map<String, HashSet<String>> dictTypeToParentTypes;
@@ -383,6 +181,7 @@ public class SASplusLiftedFamGroup {
         for (Candidate candidateProved : candidatesProved) {
             System.out.println(candidateProved.getUniqueStringRepresentation());
         }
+        System.out.println("-----------------");
 
         // Now, we can ground our mutexes. But there can be overlap between our mutex (2
         // mutex can encode the same variable...)
@@ -1872,17 +1671,85 @@ public class SASplusLiftedFamGroup {
     }
 
     public static void removeSubProvedCandidates() {
+
+        HashSet<Candidate> candidatesToPrune = new HashSet<Candidate>();
+
         // Iterate over each pair of proved candidates
         for (Candidate candidateProved1 : candidatesProved) {
             for (Candidate candidateProved2 : candidatesProved) {
 
-                if (candidateProved1 != candidateProved2) {
+                if (candidateProved1 != candidateProved2 
+                && !candidatesToPrune.contains(candidateProved1) 
+                && !candidatesToPrune.contains(candidateProved2)) {
 
+                    
                     // Check if both candidates have the same set of predicates name
                     // And each argument of each predicate name have the same type
+                    Candidate potentialSubCandidate;
+                    Candidate potentialDadCandidate;
+                    
+                    // For a candidate to be a subcandidate to another candidate, it means that all its predicate are
+                    // among the bigger predicate and each argument of the predicate are among the argument of the predicate of the parent candidate
+                    if (candidateProved1.mutexGroup.size() > candidateProved2.mutexGroup.size()) {
+                        potentialDadCandidate = candidateProved1;
+                        potentialSubCandidate = candidateProved2;
+                    } else {
+                        potentialDadCandidate = candidateProved2;
+                        potentialSubCandidate = candidateProved1;
+                    }
+
+                    boolean isSubCandidate = true;
+
+                    for (AtomCandidate atomCandidateSon : potentialSubCandidate.mutexGroup) {
+                        
+                        String sonPredicateName = atomCandidateSon.predSymbolName;
+
+                        boolean parentHasThisPredicate = false;
+
+                        
+                        // Get the parent atom candidate associated
+                        for (AtomCandidate atomCandidateDad : potentialDadCandidate.mutexGroup) {
+                            if (atomCandidateDad.predSymbolName.equals(sonPredicateName)) {
+
+                                parentHasThisPredicate = true;
+                                
+                                // Now, we must check if for each argument:
+                                // arg Son CountedVar => arg parent CountedVar
+                                for (int argi = 0; argi < atomCandidateDad.paramsId.size(); argi++) {
+
+                                    AtomVariable varSon = atomCandidateSon.candidateParent.variables.get(atomCandidateSon.paramsId.get(argi));
+                                    AtomVariable varDad = atomCandidateDad.candidateParent.variables.get(atomCandidateDad.paramsId.get(argi));
+                                    if (!(varDad.typeName.equals(varSon.typeName) || dictTypeToChildTypes.get(varDad.typeName).contains(varSon.typeName))
+                                    || (varSon.isCountedVar && !varDad.isCountedVar)) {
+
+                                        isSubCandidate = false;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (!parentHasThisPredicate) {
+                            isSubCandidate = false;
+                            break;
+                        }
+                    }
+
+                    if (!isSubCandidate) {
+                        continue;
+                    }
+                    else {
+                        candidatesToPrune.add(potentialSubCandidate);
+                    }
                 }
             }
         }
+
+        System.out.println("Candidates to prune:");
+        for (Candidate candidateToPrune : candidatesToPrune) {
+            System.out.println(candidateToPrune.getUniqueStringRepresentation());
+        }
+        System.out.println("-------------");
+        candidatesProved.removeAll(candidatesToPrune);
     }
 
     public static Vector<GroundCandidate> groundMutexes(Problem problem, HashSet<Candidate> provedCandidates) {
