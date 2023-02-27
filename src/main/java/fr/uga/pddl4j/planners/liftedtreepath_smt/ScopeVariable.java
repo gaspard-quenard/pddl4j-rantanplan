@@ -25,6 +25,10 @@ public class ScopeVariable {
     // We also want to knwo which lifted flow has incurred this constrains
     private ArrayList<ConstrainsOnScopeVariable> allConstrainsOnScopeVariables;
 
+
+    // Just a list which indicate all the scope variable that must be differents from this scope variable
+    private HashSet<ScopeVariable> scopeVarThatMustBeDifferentFromMe;
+
     public ScopeVariable() {
         this.typeVariable = null;
         this.possibleValueVariable = new HashSet<String>();
@@ -33,6 +37,8 @@ public class ScopeVariable {
         ScopeVariable.numScopeVariable++;
 
         this.allConstrainsOnScopeVariables = new ArrayList<>();
+
+        this.scopeVarThatMustBeDifferentFromMe = new HashSet<>();
     }
 
     public void addTypeVariable(String typeVariable) {
@@ -49,8 +55,10 @@ public class ScopeVariable {
                     constrainsOnScopeVariable.liftedFlows.add(flowWhichHaveCausedThisConstrains);
                     // Add as well the pair for this lifted flow
                     HashSet<Pair<ScopeVariable, ScopeVariable>> hashSetpair =  new HashSet<Pair<ScopeVariable, ScopeVariable>>();
-                    hashSetpair.add(Pair.of(scopeVar1, scopeVar2));
-                    constrainsOnScopeVariable.pairsScopeThatMustBeEquals.add(hashSetpair);
+                    if (scopeVar1 != null && scopeVar2 != null) {
+                        hashSetpair.add(Pair.of(scopeVar1, scopeVar2));
+                        constrainsOnScopeVariable.pairsScopeThatMustBeEquals.add(hashSetpair);
+                    }
                     // Add as well the constrains on the pivot
                     if (constrainsOnPivot != null) {
                         constrainsOnScopeVariable.constrainsOnPivot.addAll(constrainsOnPivot);
@@ -60,7 +68,9 @@ public class ScopeVariable {
 
                 } else {
                     // Add the pair into the HashSet pair if it does not already exist
-                    constrainsOnScopeVariable.pairsScopeThatMustBeEquals.get(idx).add(Pair.of(scopeVar1, scopeVar2));
+                    if (scopeVar1 != null && scopeVar2 != null) {
+                        constrainsOnScopeVariable.pairsScopeThatMustBeEquals.get(idx).add(Pair.of(scopeVar1, scopeVar2));
+                    }
                     if (constrainsOnPivot != null) {
                         constrainsOnScopeVariable.constrainsOnPivot.addAll(constrainsOnPivot);
                     }
@@ -73,15 +83,26 @@ public class ScopeVariable {
         ConstrainsOnScopeVariable constrains = new ConstrainsOnScopeVariable();
         constrains.pivot = pivot;
         constrains.liftedFlows.add(flowWhichHaveCausedThisConstrains);
-        HashSet<Pair<ScopeVariable, ScopeVariable>> hashSetpair =  new HashSet<Pair<ScopeVariable, ScopeVariable>>();
-        hashSetpair.add(Pair.of(scopeVar1, scopeVar2));
-        constrains.pairsScopeThatMustBeEquals.add(hashSetpair);
+        if (scopeVar1 != null && scopeVar2 != null) {
+            HashSet<Pair<ScopeVariable, ScopeVariable>> hashSetpair =  new HashSet<Pair<ScopeVariable, ScopeVariable>>();
+            hashSetpair.add(Pair.of(scopeVar1, scopeVar2));
+            constrains.pairsScopeThatMustBeEquals.add(hashSetpair);
+        }
+        
         if (constrainsOnPivot != null) {
             constrains.constrainsOnPivot.addAll(constrainsOnPivot);
         }
         
         this.allConstrainsOnScopeVariables.add(constrains);
         return;
+    }
+
+    public void addConstrainsNotEqual(ScopeVariable scopeVariable) {
+        this.scopeVarThatMustBeDifferentFromMe.add(scopeVariable);
+    }
+
+    public HashSet<ScopeVariable> getConstrainsNotEqual() {
+        return this.scopeVarThatMustBeDifferentFromMe;
     }
 
     public ArrayList<ConstrainsOnScopeVariable> getConstrains() {
@@ -118,6 +139,26 @@ public class ScopeVariable {
             sb.append("}");
         }
         return sb.toString();
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (obj == null) {
+            return false;
+        }
+        if (!ScopeVariable.class.isAssignableFrom(obj.getClass())) {
+            return false;
+        }
+        final ScopeVariable other = (ScopeVariable) obj;
+        if (this.uniqueId != other.uniqueId) {
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public int hashCode() {
+        return this.uniqueId;
     }
 
     public String getUniqueName() {

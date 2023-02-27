@@ -1,59 +1,42 @@
 package fr.uga.pddl4j.planners.liftedtreepath_smt;
 
-import java.util.Vector;
-
-import javax.lang.model.element.Element;
-
-import org.apache.commons.lang3.tuple.Pair;
-import org.apache.commons.lang3.tuple.Triple;
-import org.apache.logging.log4j.core.LifeCycle;
-import org.sat4j.core.Vec;
-import org.sat4j.core.VecInt;
-import org.sat4j.specs.IVecInt;
-
-import fr.uga.pddl4j.problem.Problem;
-import fr.uga.pddl4j.problem.Task;
-import fr.uga.pddl4j.problem.operator.Method;
-
-import fr.uga.pddl4j.problem.Fluent;
-import fr.uga.pddl4j.problem.Problem;
-import fr.uga.pddl4j.problem.operator.Action;
-
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.net.SocketException;
-import java.util.ArrayDeque;
+import java.security.KeyPair;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Queue;
-import java.util.Set;
 import java.util.Stack;
+import java.util.Vector;
 
-import fr.uga.pddl4j.util.BitVector;
+import org.apache.commons.lang3.tuple.Pair;
+import org.apache.commons.lang3.tuple.Triple;
+
 import fr.uga.pddl4j.parser.Expression;
 import fr.uga.pddl4j.parser.NamedTypedList;
 import fr.uga.pddl4j.parser.ParsedAction;
 import fr.uga.pddl4j.parser.ParsedMethod;
 import fr.uga.pddl4j.parser.Symbol;
+import fr.uga.pddl4j.parser.SymbolType;
 import fr.uga.pddl4j.parser.TypedSymbol;
 import fr.uga.pddl4j.parser.SAS_Plus.AtomCandidate;
 import fr.uga.pddl4j.parser.SAS_Plus.AtomVariable;
 import fr.uga.pddl4j.parser.SAS_Plus.Candidate;
-import fr.uga.pddl4j.parser.SAS_Plus.SASPlusGeneratorDomain;
 import fr.uga.pddl4j.parser.SAS_Plus.SASplusLiftedFamGroup;
-import fr.uga.pddl4j.parser.SAS_Plus.Strips2SasPlus;
 import fr.uga.pddl4j.plan.Hierarchy;
 import fr.uga.pddl4j.plan.Plan;
 import fr.uga.pddl4j.plan.SequentialPlan;
+import fr.uga.pddl4j.problem.Fluent;
+import fr.uga.pddl4j.problem.Problem;
+import fr.uga.pddl4j.problem.operator.Action;
+import fr.uga.pddl4j.problem.operator.Method;
 
 enum LIFTED_FAM_GROUP_UNIFIER {
     SUCCESS,
@@ -80,6 +63,8 @@ public class LiftedTreePathEncoder {
     Map<String, ParsedMethod> methodNameToObj;
     Map<String, ParsedAction> actionNameToObj;
 
+    Map<String, ScopeVariable> dictConstantToScopeVariable;
+
     Map<String, Integer> objNameToUniqueId;
 
     private int layer = 0;
@@ -100,7 +85,11 @@ public class LiftedTreePathEncoder {
 
     PrimitiveTree primitiveTree;
 
-    HashSet<Candidate> liftedFamGroups;
+    ArrayList<Candidate> liftedFamGroups;
+
+    // indicate for each pair of predicates name 
+    // which lifted fam groups contains this pair of predicates
+    UnorderedPairDictionary<String, HashSet<Candidate>> dictPairPredicateNameToLiftedFamGroups;
 
     public void showAllPaths() {
 
@@ -131,7 +120,58 @@ public class LiftedTreePathEncoder {
 
         // Get SAS+ cliques (in the lifted form)
         SASplusLiftedFamGroup.determinateLiftedFamGroups(problem);
-        this.liftedFamGroups = SASplusLiftedFamGroup.candidatesProved;
+        // Change the lifted fam groups to an array to have a specifial index for each
+        // lifted fam group
+        this.liftedFamGroups = new ArrayList<Candidate>(SASplusLiftedFamGroup.candidatesProved);
+        
+
+        // add for each lifted fam group a special predicate which is true if
+        // the group is empty
+        for (int liftedFamGroupIdx = 0; liftedFamGroupIdx < this.liftedFamGroups.size(); liftedFamGroupIdx++) {
+            Candidate c = this.liftedFamGroups.get(liftedFamGroupIdx);
+
+            // This special predicate takes as argument all the not counted variables
+            // of the lifted fam group
+
+            // Create a special new atomCandidate which is true if the lifted fam group is empty
+            AtomCandidate atomCandidate = new AtomCandidate(c, "__ALL_FALSE__" + liftedFamGroupIdx);
+            for (int varId = 0; varId < c.variables.size(); varId++) {
+                if (c.variables.get(varId).isCountedVar == false) {
+                    atomCandidate.paramsId.add(varId);
+                }
+            }
+
+
+
+            //If there it at least one variable which is not counted, then add the special predicate (no in fact, we add it always)
+            // if (atomCandidate.paramsId.size() > 0) 
+            {
+                c.mutexGroup.add(atomCandidate);
+            }
+        }
+
+        // Print all the lifted fam groups
+        System.out.println("Lifted fam groups:");
+        for (Candidate c : this.liftedFamGroups) {
+            System.out.println(c.getUniqueStringRepresentation());
+        }
+
+        // Make a little preprocessing: indicate for each pair of predicates name 
+        // which lifted fam groups contains this pair of predicates
+        this.dictPairPredicateNameToLiftedFamGroups = new UnorderedPairDictionary<>();
+        for (Candidate candidate : this.liftedFamGroups) {
+            int nbPredLiftedFamGroup = candidate.mutexGroup.size();
+            for (int i = 0; i < nbPredLiftedFamGroup; i++) {
+                String pred1 = candidate.mutexGroup.get(i).predSymbolName;
+                for (int j = i; j < nbPredLiftedFamGroup; j++) {
+                    String pred2 = candidate.mutexGroup.get(j).predSymbolName;
+                    if (!this.dictPairPredicateNameToLiftedFamGroups.containsKey(pred1, pred2)) {
+                        this.dictPairPredicateNameToLiftedFamGroups.put(pred1, pred2, new HashSet<Candidate>());
+                    }
+                    this.dictPairPredicateNameToLiftedFamGroups.get(pred1, pred2).add(candidate);
+                }
+            }
+        }
 
         for (int i = 0; i < this.problem.getInitialTaskNetwork().getTasks().size(); i++) {
 
@@ -165,7 +205,8 @@ public class LiftedTreePathEncoder {
             // Now we can add all of our methods with the appropriate scope
             // Create a flow for each different method that can be taken
             for (String methodName : methodNameToScope.keySet()) {
-                LiftedFlow f = new LiftedFlow(methodName, null, idxTaskNetwork, methodNameToScope.get(methodName));
+                LiftedFlow f = new LiftedFlow(methodName, null, idxTaskNetwork, methodNameToScope.get(methodName),
+                        methodNameToObj, false);
                 this.paths.add(f);
 
                 if (i == 0) {
@@ -225,15 +266,17 @@ public class LiftedTreePathEncoder {
                     e.printStackTrace();
                 }
 
+                System.out.println("Launch solver on file");
+
                 // Run the SMT solver on the file
-                String responseSMT = executeSMTSolverOnFile();  
-                
+                String responseSMT = executeSMTSolverOnFile();
+
                 if (fileIsSatisfiable(responseSMT)) {
                     System.out.println("SAT solution found !");
 
                     System.out.println("Extract the hierarchy of the plan...\n");
                     SequentialPlan plan = extractPlanAndHierarchyFromSolver(responseSMT);
-        
+
                     // Verify if the plan is valid
                     System.out.println("Check if plan is valid...");
                     boolean planIsValid;
@@ -243,7 +286,7 @@ public class LiftedTreePathEncoder {
                         System.out.println("Failed to check if plan is valid !\n");
                         planIsValid = false;
                     }
-        
+
                     if (planIsValid) {
                         System.out.println("Plan is valid !\n");
                     } else {
@@ -260,7 +303,6 @@ public class LiftedTreePathEncoder {
             System.out.println("Number flows before refining: " + this.paths.size());
             refineAllLiftedFlows();
             System.out.println("Number flows after refining: " + this.paths.size());
-
 
             // Remove all paths which are impossible
             // (e.g: Initial path with an action flow impossible)
@@ -295,7 +337,39 @@ public class LiftedTreePathEncoder {
             // Iterate over all children of the method of this flow
             String methodNameFlow = flowParent.getMethodName();
 
-            // System.out.println("Refine flow : " + flowParent);
+            System.out.println("Refine flow : " + flowParent);
+
+            ParsedMethod liftedMethod = this.methodNameToObj.get(methodNameFlow);
+
+            // We have a special case if this method has no children. We create an action
+            // with no preconditions and no effects
+
+            if (liftedMethod.getSubTasks().getChildren().size() == 0) {
+
+                // Create the blank action
+                LiftedFlow newFlowBlankAction = new LiftedFlow(true, flowParent, methodNameToObj, true);
+                for (LiftedFlow previousFlow : flowParent.getPreviousesLiftedFlow()) {
+                    newFlowBlankAction.addPreviousesLiftedFlow(previousFlow);
+                }
+                for (LiftedFlow nextFlow : flowParent.getNextsLiftedFlow()) {
+                    newFlowBlankAction.addNextLiftedFlow(nextFlow);
+                }
+
+                if (flowParent.getPreviousesLiftedFlow().size() == 0) {
+                    newInitialPaths.add(newFlowBlankAction);
+                }
+
+                HashSet<LiftedFlow> h = new HashSet<>();
+                h.add(newFlowBlankAction);
+
+                dictMethodFlowToAllFirstChildrenFlows.put(flowParent, h);
+
+                newPaths.add(newFlowBlankAction);
+
+                System.out.println(newFlowBlankAction);
+                System.out.println("===============");
+                continue;
+            }
 
             ArrayList<String> consecutiveActionsOfLiftedFlow = new ArrayList<String>();
             ArrayList<ArrayList<ScopeVariable>> consecutiveActionsOfLiftedFlowScope = new ArrayList<ArrayList<ScopeVariable>>();
@@ -305,7 +379,7 @@ public class LiftedTreePathEncoder {
             boolean firstNewLiftedFlow = true;
             boolean subTaskIsPrimitive = false;
 
-            ParsedMethod liftedMethod = this.methodNameToObj.get(methodNameFlow);
+            boolean actionIsFirstChildOfMethod = false;
 
             // Iterate over all subtasks of this method
             for (int idxSubtask = 0; idxSubtask < liftedMethod.getSubTasks().getChildren().size(); idxSubtask++) {
@@ -322,6 +396,10 @@ public class LiftedTreePathEncoder {
                     // Initialize the action with the correct scope
                     lastSubTaskIsAction = true;
 
+                    if (idxSubtask == 0) {
+                        actionIsFirstChildOfMethod = true;
+                    }
+
                     // Find the scope of the action (two cases here:
                     // - first: it heritate its scope from a parent method (then we use the same
                     // scope as the parent method))
@@ -337,9 +415,12 @@ public class LiftedTreePathEncoder {
                             // Maybe it is a constant variable
                             // TODO create a scope variable for each constant to avoir duplicatas
                             // FOR NOW DO NOT DO IT
-                            // scopeAction.add(nameArg);
-                            System.out.println("WE WILL SEE THAT LATER...");
-                            System.exit(1);
+                            if (!this.dictConstantToScopeVariable.keySet().contains(nameArg)) {
+                                System.out.println("STRANGE THINGS HERE...");
+                                System.exit(1);
+                            } else {
+                                scopeAction.add(this.dictConstantToScopeVariable.get(nameArg));
+                            }
                         }
                     }
 
@@ -353,11 +434,13 @@ public class LiftedTreePathEncoder {
                 if (lastSubTaskIsAction) {
                     // Create a new flow with all these actions in it
                     LiftedFlow flowAction = new LiftedFlow(consecutiveActionsOfLiftedFlow, flowParent,
-                            consecutiveActionsOfLiftedFlowScope, actionNameToObj);
+                            consecutiveActionsOfLiftedFlowScope, actionNameToObj, methodNameToObj,
+                            actionIsFirstChildOfMethod);
                     consecutiveActionsOfLiftedFlow = new ArrayList<String>();
                     consecutiveActionsOfLiftedFlowScope = new ArrayList<ArrayList<ScopeVariable>>();
                     lastSubTaskIsAction = false;
                     newLiftedFlows.add(flowAction);
+                    actionIsFirstChildOfMethod = false;
                 }
 
                 if (!subTaskIsPrimitive) {
@@ -427,7 +510,10 @@ public class LiftedTreePathEncoder {
                             }
                         }
 
-                        LiftedFlow flowMethod = new LiftedFlow(subMethodName, flowParent, 0, scopeSubMethod);
+                        boolean isFirstChildOfMethod = (idxSubtask == 0);
+
+                        LiftedFlow flowMethod = new LiftedFlow(subMethodName, flowParent, 0, scopeSubMethod,
+                                methodNameToObj, isFirstChildOfMethod);
                         newLiftedFlows.add(flowMethod);
                     }
                 }
@@ -436,9 +522,10 @@ public class LiftedTreePathEncoder {
                     // HashSet<LiftedFlow> allChild
                     dictMethodFlowToAllFirstChildrenFlows.put(flowParent, newLiftedFlows);
                     // for (LiftedFlow newLiftedFlow : newLiftedFlows) {
-                    //     for (LiftedFlow previousLiftedFlowParentMethod : flowParent.getPreviousesLiftedFlow()) {
-                    //         newLiftedFlow.addNextLiftedFlow(previousLiftedFlowParentMethod);
-                    //     }
+                    // for (LiftedFlow previousLiftedFlowParentMethod :
+                    // flowParent.getPreviousesLiftedFlow()) {
+                    // newLiftedFlow.addNextLiftedFlow(previousLiftedFlowParentMethod);
+                    // }
                     // }
                     firstNewLiftedFlow = false;
                 }
@@ -466,11 +553,11 @@ public class LiftedTreePathEncoder {
                     newInitialPaths.addAll(newLiftedFlows);
                 }
 
-                // System.out.println("Subtask: " + idxSubtask + " ");
-                // for (LiftedFlow newLiftedFlow : newLiftedFlows) {
-                //     System.out.println(newLiftedFlow);
-                // }
-                // System.out.println("===============");
+                System.out.println("Subtask: " + idxSubtask + " ");
+                for (LiftedFlow newLiftedFlow : newLiftedFlows) {
+                    System.out.println(newLiftedFlow);
+                }
+                System.out.println("===============");
 
                 previousLiftedFlows = newLiftedFlows;
                 newLiftedFlows = new HashSet<LiftedFlow>();
@@ -495,7 +582,8 @@ public class LiftedTreePathEncoder {
             }
         }
 
-        // TODO it seems that I have a bug where the previous flow are not always recorded. I do 
+        // TODO it seems that I have a bug where the previous flow are not always
+        // recorded. I do
         // an ugly fix here, but I have to correct this...
         for (LiftedFlow newLiftedFlow : newPaths) {
             for (LiftedFlow nextFlow : newLiftedFlow.getNextsLiftedFlow()) {
@@ -507,36 +595,6 @@ public class LiftedTreePathEncoder {
         this.initialPaths = newInitialPaths;
     }
 
-    // private void getAllPrimitivePaths() {
-
-    //     this.allPrimitivesPath.clear();
-    //     // Iterate over all initials flows
-    //     for (LiftedFlow initialLiftedFlow : this.initialPaths) {
-    //         if (initialLiftedFlow.isMethodLiftedFlow()) {
-    //             continue;
-    //         }
-    //         ArrayList<LiftedFlow> actualPath = new ArrayList<LiftedFlow>();
-    //         recursiveFindAllPrimitivePaths(actualPath, initialLiftedFlow);
-    //     }
-    // }
-
-    // private void recursiveFindAllPrimitivePaths(ArrayList<LiftedFlow> actualPath, LiftedFlow root) {
-
-    //     actualPath.add(root);
-    //     if (root.getNextsLiftedFlow().size() == 0) {
-    //         this.allPrimitivesPath.add(actualPath);
-
-    //         // Not very clean, but whatever (for now)
-    //         this.allPrimitivesPathFlow.addAll(actualPath);
-    //     } else {
-    //         for (LiftedFlow nextFlow : root.getNextsLiftedFlow()) {
-    //             if (!nextFlow.isMethodLiftedFlow()) {
-    //                 recursiveFindAllPrimitivePaths((ArrayList<LiftedFlow>) actualPath.clone(), nextFlow);
-    //             }
-    //         }
-    //     }
-    // }
-
     /**
      * Returns true if the given response of the SMT solver indicates that the SMT
      * file is satisfiable, false otherwise.
@@ -547,7 +605,7 @@ public class LiftedTreePathEncoder {
     private Boolean fileIsSatisfiable(String responseSolverSMT) {
         return !responseSolverSMT.contains("unsat");
     }
-    
+
     /**
      * Executes the SMT solver on the SMT file and returns the response as a string.
      *
@@ -573,7 +631,7 @@ public class LiftedTreePathEncoder {
     }
 
     SequentialPlan extractPlanAndHierarchyFromSolver(String outputSMTSolver) {
-    
+
         int a = 0;
 
         String[] outputLines = outputSMTSolver.split("\n");
@@ -582,8 +640,10 @@ public class LiftedTreePathEncoder {
         List<String> scopeVarActions = Arrays.asList(outputLines);
 
         // First, extract all the actions which are true
-        actionsInPlan = Arrays.asList(actionsInPlan.stream().filter(s -> (s.contains("FLOW_") && s.contains(" true)"))).toArray(String[]::new)); 
-        scopeVarActions = Arrays.asList(scopeVarActions.stream().filter(s -> s.contains("SCOPE_")).toArray(String[]::new)); 
+        actionsInPlan = Arrays.asList(actionsInPlan.stream().filter(s -> (s.contains("FLOW_") && s.contains(" true)")))
+                .toArray(String[]::new));
+        scopeVarActions = Arrays
+                .asList(scopeVarActions.stream().filter(s -> s.contains("SCOPE_")).toArray(String[]::new));
 
         // Get the objects associated with each action
         List<LiftedFlow> actionsObjInPlan = new ArrayList<LiftedFlow>();
@@ -600,7 +660,7 @@ public class LiftedTreePathEncoder {
 
         SequentialPlan p = new SequentialPlan();
         Hierarchy hierarchy = new Hierarchy();
-        
+
         // Add the roots tasks to the hierarchy
         int numberRootTasks = problem.getInitialTaskNetwork().getTasks().size();
         for (int rootTaskIdx = 0; rootTaskIdx < numberRootTasks; rootTaskIdx++) {
@@ -615,7 +675,7 @@ public class LiftedTreePathEncoder {
         System.out.println("==============");
         // take the first action executed
         for (LiftedFlow actionObjInPlan : actionsObjInPlan) {
-            
+
             int sizeRootFromAction = 0;
             // Get the parent of the action
             LiftedFlow node = actionObjInPlan;
@@ -634,48 +694,139 @@ public class LiftedTreePathEncoder {
                     node = node.parentFlow;
                 }
 
-                ArrayList<String> argsOperator = new ArrayList<>();
-
-
-                ArrayList<ScopeVariable> scopesVariable;
-                if (i == 0) {
-                    scopesVariable = node.getScopeVariablesActionsFlow().get(0);
-                } else {
-                    scopesVariable = node.getScopeVariables();
+                if (i == 0 && node.getUniqueName().contains("FLOW_BLANK")) {
+                    continue;
                 }
-                
 
-                // Find all value of the scope of this method/action
-                for (ScopeVariable scopeVariable : scopesVariable) {
+                ArrayList<String> argsMethod = new ArrayList<>();
 
-                    if (scopeVariable.getPossibleValueVariable().size() == 1) {
-                        argsOperator.add(scopeVariable.getPossibleValueVariable().iterator().next());
-                        continue;
+                ArrayList<ScopeVariable> scopesVariableMethod = new ArrayList<>();
+
+                // If this is an action
+                if (i == 0) {
+
+                    ArrayList<ArrayList<ScopeVariable>> scopesVariableAction = node.getScopeVariablesActionsFlow();
+
+                    ArrayList<ArrayList<String>> argsAction = new ArrayList<ArrayList<String>>();
+
+                    // Find the value of each scope variable of each action
+
+                    for (int actionIdx = 0; actionIdx < scopesVariableAction.size(); actionIdx++) {
+
+                        argsAction.add(new ArrayList<>());
+
+                        ArrayList<ScopeVariable> scopeVariableAction = scopesVariableAction.get(actionIdx);
+
+                        for (ScopeVariable scopeVariable : scopeVariableAction) {
+
+                            if (scopeVariable.getPossibleValueVariable().size() == 1) {
+                                argsAction.get(actionIdx)
+                                        .add(scopeVariable.getPossibleValueVariable().iterator().next());
+                                continue;
+                            }
+                            String nameScopeVariable = scopeVariable.getUniqueName();
+                            // Get the value from the SMT file
+                            for (String scopeVar : scopeVarActions) {
+                                String scopeVarExactName = scopeVar.split(" ")[1];
+                                if (scopeVarExactName.equals(nameScopeVariable)) {
+                                    // Extract the value
+                                    String[] split = scopeVar.split(" ");
+                                    String value = split[split.length - 1].substring(0,
+                                            split[split.length - 1].length() - 1);
+
+                                    String objAssociated = null;
+                                    Integer valueInt = Integer.parseInt(value);
+                                    for (String objName : this.objNameToUniqueId.keySet()) {
+                                        if (this.objNameToUniqueId.get(objName) == valueInt) {
+                                            objAssociated = objName;
+                                            break;
+                                        }
+                                    }
+                                    argsAction.get(actionIdx).add(objAssociated);
+                                    int b = 0;
+                                }
+                            }
+                        }
                     }
-                    String nameScopeVariable = scopeVariable.getUniqueName();
-                    // Get the value from the SMT file
-                    for (String scopeVar : scopeVarActions) {
-                        String scopeVarExactName = scopeVar.split(" ")[1];
-                        if (scopeVarExactName.equals(nameScopeVariable)) {
-                            // Extract the value
-                            String[] split =  scopeVar.split(" ");
-                            String value = split[split.length - 1].substring(0, split[split.length - 1].length() - 1);
 
-                            String objAssociated = null;
-                            Integer valueInt = Integer.parseInt(value);
-                            for (String objName : this.objNameToUniqueId.keySet()) {
-                                if (this.objNameToUniqueId.get(objName) == valueInt) {
-                                    objAssociated = objName;
+                    for (int actionIdx = 0; actionIdx < node.getMacroAction().size(); actionIdx++) {
+
+                        String nameAction = node.getMacroAction().get(actionIdx);
+                        boolean actionIsFound = false;
+                        for (Action groundAction : problem.getActions()) {
+
+                            if (!groundAction.getName().equals(nameAction)) {
+                                continue;
+                            }
+
+                            // System.out.println(argMethod);
+                            // System.out.println(prettyDisplayMethod(groundMethod, problem));
+
+                            boolean isCorrectAction = true;
+                            for (int argi = 0; argi < groundAction.getInstantiations().length; argi++) {
+                                if (!problem.getConstantSymbols().get(groundAction.getInstantiations()[argi])
+                                        .equals(argsAction.get(actionIdx).get(argi))) {
+                                    isCorrectAction = false;
                                     break;
                                 }
                             }
-                            argsOperator.add(objAssociated);
-                            int b = 0;
-                        }  
-                    }
-                }
 
-                if (i > 0) {
+                            if (isCorrectAction) {
+
+                                // Add it into our hierarchy if it not already there
+                                // int actionId = this.problem.getActions().indexOf(groundAction);
+                                int actionId = node.uniqueId + actionIdx;
+                                hierarchy.getPrimtiveTasks().put(actionId, groundAction);
+
+                                // Add this method as the child of the parent method
+                                if (parentMethodId != -1) {
+                                    hierarchy.getDecomposition().get(parentMethodId).add(actionId);
+                                }
+
+                                actionIsFound = true;
+                                break;
+                            }
+                        }
+                        if (!actionIsFound) {
+                            System.out.println("WHAT !!");
+                        }
+                    }
+
+                }
+                // If this is a method
+                else {
+                    scopesVariableMethod = node.getScopeVariables();
+
+                    // Find all value of the scope of this method/action
+                    for (ScopeVariable scopeVariable : scopesVariableMethod) {
+
+                        if (scopeVariable.getPossibleValueVariable().size() == 1) {
+                            argsMethod.add(scopeVariable.getPossibleValueVariable().iterator().next());
+                            continue;
+                        }
+                        String nameScopeVariable = scopeVariable.getUniqueName();
+                        // Get the value from the SMT file
+                        for (String scopeVar : scopeVarActions) {
+                            String scopeVarExactName = scopeVar.split(" ")[1];
+                            if (scopeVarExactName.equals(nameScopeVariable)) {
+                                // Extract the value
+                                String[] split = scopeVar.split(" ");
+                                String value = split[split.length - 1].substring(0,
+                                        split[split.length - 1].length() - 1);
+
+                                String objAssociated = null;
+                                Integer valueInt = Integer.parseInt(value);
+                                for (String objName : this.objNameToUniqueId.keySet()) {
+                                    if (this.objNameToUniqueId.get(objName) == valueInt) {
+                                        objAssociated = objName;
+                                        break;
+                                    }
+                                }
+                                argsMethod.add(objAssociated);
+                                int b = 0;
+                            }
+                        }
+                    }
 
                     // Find the ground method associated with this method and argument
                     String nameMethod = node.getMethodName();
@@ -689,15 +840,15 @@ public class LiftedTreePathEncoder {
                         // System.out.println(argMethod);
                         // System.out.println(prettyDisplayMethod(groundMethod, problem));
 
-
                         boolean isCorrectMethod = true;
                         for (int argi = 0; argi < groundMethod.getInstantiations().length; argi++) {
-                            if (!problem.getConstantSymbols().get(groundMethod.getInstantiations()[argi]).equals(argsOperator.get(argi))) {
+                            if (!problem.getConstantSymbols().get(groundMethod.getInstantiations()[argi])
+                                    .equals(argsMethod.get(argi))) {
                                 isCorrectMethod = false;
                                 break;
                             }
                         }
-                        
+
                         if (isCorrectMethod) {
 
                             // Add it into our hierarchy if it not already there
@@ -709,55 +860,14 @@ public class LiftedTreePathEncoder {
                             }
 
                             // Add this method as the child of the parent method
-                            if (parentMethodId != -1 && !hierarchy.getDecomposition().get(parentMethodId).contains(methodId)) {
+                            if (parentMethodId != -1
+                                    && !hierarchy.getDecomposition().get(parentMethodId).contains(methodId)) {
                                 hierarchy.getDecomposition().get(parentMethodId).add(methodId);
                             }
 
                             parentMethodId = methodId;
                             break;
                         }
-                    }
-                } else {
-                    // TODO change here when they can be multiple actions
-                    String nameAction = node.getMacroAction().get(0);
-
-                    boolean actionIsFound = false;
-                    for (Action groundAction : problem.getActions()) {
-
-                        if (!groundAction.getName().equals(nameAction)) {
-                            continue;
-                        }
-
-                        // System.out.println(argMethod);
-                        // System.out.println(prettyDisplayMethod(groundMethod, problem));
-
-
-                        boolean isCorrectAction = true;
-                        for (int argi = 0; argi < groundAction.getInstantiations().length; argi++) {
-                            if (!problem.getConstantSymbols().get(groundAction.getInstantiations()[argi]).equals(argsOperator.get(argi))) {
-                                isCorrectAction = false;
-                                break;
-                            }
-                        }
-                        
-                        if (isCorrectAction) {
-
-                            // Add it into our hierarchy if it not already there
-                            // int actionId = this.problem.getActions().indexOf(groundAction);
-                            int actionId = node.uniqueId;
-                            hierarchy.getPrimtiveTasks().put(actionId, groundAction);
-
-                            // Add this method as the child of the parent method
-                            if (parentMethodId != -1) {
-                                hierarchy.getDecomposition().get(parentMethodId).add(actionId);
-                            }
-
-                            actionIsFound = true;
-                            break;
-                        }
-                    }
-                    if (!actionIsFound) {
-                        System.out.println("WHAT !!");
                     }
                 }
                 a = 0;
@@ -777,8 +887,7 @@ public class LiftedTreePathEncoder {
         return p;
     }
 
-
- /**
+    /**
      * Validates a given plan by writing the plan's hierarchy to a file and
      * executing a command to verify the plan.
      * If the plan is valid, the function returns true. If the plan is invalid or if
@@ -801,7 +910,7 @@ public class LiftedTreePathEncoder {
         }
 
         // Construct the command to verify the plan
-        String command = String.format("./%s --verify %s %s %s", this.path_exec_VAL,  this.domainPath,
+        String command = String.format("./%s --verify %s %s %s", this.path_exec_VAL, this.domainPath,
                 this.problemPath, planFile.getAbsolutePath());
 
         System.out.println(command);
@@ -872,7 +981,7 @@ public class LiftedTreePathEncoder {
         // So what do we have to encode
 
         StringBuilder allClauses = new StringBuilder();
-        allClauses.append("(set-logic QF_ALL)\n");
+        allClauses.append("(set-logic QF_UFLIA)\n");
         allClauses.append("(set-option :produce-models true)\n");
 
         // Encode all objects
@@ -936,7 +1045,8 @@ public class LiftedTreePathEncoder {
             // Just use a second loop because it is more estetic on the SMT file generated
             // with this way
             for (int i = 0; i < allObjsOfType.size(); i++) {
-                declarationObjects.append("(assert (= " + allObjsOfType.get(i) + " " + this.objNameToUniqueId.get(allObjsOfType.get(i)) + "))\n");
+                declarationObjects.append("(assert (= " + allObjsOfType.get(i) + " "
+                        + this.objNameToUniqueId.get(allObjsOfType.get(i)) + "))\n");
             }
         }
         return declarationObjects.toString();
@@ -1023,41 +1133,47 @@ public class LiftedTreePathEncoder {
         return declarationPredicates.toString();
     }
 
-
     // private String declaratationAllConstrainsOnScope() {
 
-    //     StringBuilder declarationAllConstrainsOnScope = new StringBuilder();
+    // StringBuilder declarationAllConstrainsOnScope = new StringBuilder();
 
-    //     Stack<Integer> topologicalSortTree = this.primitiveTree.getTopologicalSort();
+    // Stack<Integer> topologicalSortTree = this.primitiveTree.getTopologicalSort();
 
-    //     HashSet<ScopeVariable> scopeAlreadyDeclared = new HashSet<>();
+    // HashSet<ScopeVariable> scopeAlreadyDeclared = new HashSet<>();
 
-    //     // Consume all the node of the topological sort tree
-    //     while (!topologicalSortTree.isEmpty()) {
-    //         Integer idxNode = topologicalSortTree.pop();
-    //         LiftedFlow node = this.primitiveTree.nodes.get(idxNode);
-            
-    //         for (ScopeVariable scopeVariable : node.getScopeVariablesActionsFlow().get(0)) {
-                
-    //             if (scopeVariable.constrains.size() != 0 && !scopeAlreadyDeclared.contains(scopeVariable)) {
+    // // Consume all the node of the topological sort tree
+    // while (!topologicalSortTree.isEmpty()) {
+    // Integer idxNode = topologicalSortTree.pop();
+    // LiftedFlow node = this.primitiveTree.nodes.get(idxNode);
 
-    //                 for (ScopeVariable pivot : scopeVariable.constrains.keySet()) {
+    // for (ScopeVariable scopeVariable :
+    // node.getScopeVariablesActionsFlow().get(0)) {
 
-    //                     declarationAllConstrainsOnScope.append("(assert (=> (= " + scopeVariable.getUniqueName() + " " + pivot.getUniqueName() + ") (and \n");
+    // if (scopeVariable.constrains.size() != 0 &&
+    // !scopeAlreadyDeclared.contains(scopeVariable)) {
 
-    //                     // Should know all the LiftedFlow which have implies each one of these condtion
-    //                     for (Triple<LiftedFlow, ScopeVariable, ScopeVariable> shouldBeEqualTo : scopeVariable.constrains.get(pivot)) {
-    //                         declarationAllConstrainsOnScope.append("(=> " + shouldBeEqualTo.getLeft().getUniqueName() + " (= " + shouldBeEqualTo.getMiddle().getUniqueName() + " " + shouldBeEqualTo.getRight().getUniqueName() + ") )\n");    
-    //                     }
-    //                     declarationAllConstrainsOnScope.append(")))\n");    
-    //                 }
-    //                 scopeAlreadyDeclared.add(scopeVariable);
-    //             }
-    //         }
-    //     }
-    //     return declarationAllConstrainsOnScope.toString();
+    // for (ScopeVariable pivot : scopeVariable.constrains.keySet()) {
+
+    // declarationAllConstrainsOnScope.append("(assert (=> (= " +
+    // scopeVariable.getUniqueName() + " " + pivot.getUniqueName() + ") (and \n");
+
+    // // Should know all the LiftedFlow which have implies each one of these
+    // condtion
+    // for (Triple<LiftedFlow, ScopeVariable, ScopeVariable> shouldBeEqualTo :
+    // scopeVariable.constrains.get(pivot)) {
+    // declarationAllConstrainsOnScope.append("(=> " +
+    // shouldBeEqualTo.getLeft().getUniqueName() + " (= " +
+    // shouldBeEqualTo.getMiddle().getUniqueName() + " " +
+    // shouldBeEqualTo.getRight().getUniqueName() + ") )\n");
     // }
-
+    // declarationAllConstrainsOnScope.append(")))\n");
+    // }
+    // scopeAlreadyDeclared.add(scopeVariable);
+    // }
+    // }
+    // }
+    // return declarationAllConstrainsOnScope.toString();
+    // }
 
     private String declaratationAllConstrainsOnScope() {
 
@@ -1071,27 +1187,49 @@ public class LiftedTreePathEncoder {
         while (!topologicalSortTree.isEmpty()) {
             Integer idxNode = topologicalSortTree.pop();
             LiftedFlow node = this.primitiveTree.nodes.get(idxNode);
-            
-            for (ScopeVariable scopeVariable : node.getScopeVariablesActionsFlow().get(0)) {
 
-                ArrayList<ConstrainsOnScopeVariable> constrainsScopeVar = scopeVariable.getConstrains();
-                
-                if (constrainsScopeVar.size() > 0 && !scopeAlreadyDeclared.contains(scopeVariable)) {
+            for (ArrayList<ScopeVariable> scopesVariableAction : node.getScopeVariablesActionsFlow()) {
+                for (ScopeVariable scopeVariable : scopesVariableAction) {
+
+                    if (scopeAlreadyDeclared.contains(scopeVariable)) {
+                        continue;
+                    }
+
+                    for (ScopeVariable scopeVarThatMustBeDifferent : scopeVariable.getConstrainsNotEqual()) {
+                        declarationAllConstrainsOnScope.append("(assert (not (= " + scopeVariable.getUniqueName() + " "
+                                + scopeVarThatMustBeDifferent.getUniqueName() + ")))\n");
+                    }
+
+                    ArrayList<ConstrainsOnScopeVariable> constrainsScopeVar = scopeVariable.getConstrains();
 
                     for (ConstrainsOnScopeVariable constrainOnScopeVar : constrainsScopeVar) {
-                        declarationAllConstrainsOnScope.append("(assert (=> (and (= " + scopeVariable.getUniqueName() + " " + constrainOnScopeVar.pivot.getUniqueName() + ")");
-                        for (ScopeVariable pivotShouldBeDifferentTo : constrainOnScopeVar.constrainsOnPivot) {
-                            declarationAllConstrainsOnScope.append("(not (= " + constrainOnScopeVar.pivot.getUniqueName() + " " + pivotShouldBeDifferentTo.getUniqueName() + ")) ");
-                        }
-                        declarationAllConstrainsOnScope.append(") (and \n");
-                        for (int i = 0; i < constrainOnScopeVar.liftedFlows.size(); i++) {
-                            declarationAllConstrainsOnScope.append("(=> " + constrainOnScopeVar.liftedFlows.get(i).getUniqueName());
-                            for (Pair<ScopeVariable, ScopeVariable> pairThatMustBeEquals : constrainOnScopeVar.pairsScopeThatMustBeEquals.get(i)) {
-                                declarationAllConstrainsOnScope.append(" (= " + pairThatMustBeEquals.getLeft().getUniqueName() + " " + pairThatMustBeEquals.getRight().getUniqueName() + ") )\n");    
+                        if (constrainOnScopeVar.pairsScopeThatMustBeEquals.size() > 0) {
+                            declarationAllConstrainsOnScope
+                                    .append("(assert (=> (and (= " + scopeVariable.getUniqueName() + " "
+                                            + constrainOnScopeVar.pivot.getUniqueName() + ")");
+                            for (ScopeVariable pivotShouldBeDifferentTo : constrainOnScopeVar.constrainsOnPivot) {
+                                declarationAllConstrainsOnScope
+                                        .append("(not (= " + constrainOnScopeVar.pivot.getUniqueName() + " "
+                                                + pivotShouldBeDifferentTo.getUniqueName() + ")) ");
                             }
+                            declarationAllConstrainsOnScope.append(") (and \n");
+                            for (int i = 0; i < constrainOnScopeVar.liftedFlows.size(); i++) {
+
+                                declarationAllConstrainsOnScope
+                                        .append("(=> " + constrainOnScopeVar.liftedFlows.get(i).getUniqueName());
+                                for (Pair<ScopeVariable, ScopeVariable> pairThatMustBeEquals : constrainOnScopeVar.pairsScopeThatMustBeEquals
+                                        .get(i)) {
+
+                                    declarationAllConstrainsOnScope
+                                            .append(" (= " + pairThatMustBeEquals.getLeft().getUniqueName() + " "
+                                                    + pairThatMustBeEquals.getRight().getUniqueName() + ") )\n");
+                                }
+                            }
+                            declarationAllConstrainsOnScope.append(")))\n");
                         }
-                        declarationAllConstrainsOnScope.append(")))\n"); 
+
                     }
+
                     scopeAlreadyDeclared.add(scopeVariable);
                 }
             }
@@ -1147,17 +1285,18 @@ public class LiftedTreePathEncoder {
 
         StringBuilder allMacroActionsPath = new StringBuilder();
 
-        // I've come up with an algo for that, but I do not know if it is the most optimal
+        // I've come up with an algo for that, but I do not know if it is the most
+        // optimal
         // Iterate over our primitive tree in a topological way
         Stack<Integer> topologicalSortTree = this.primitiveTree.getTopologicalSort();
 
         // Map<Integer, String> flowToFormula = new HashMap<Integer, String>();
-        String[] flowToFormula = new String[this.primitiveTree.nodes.size()]; 
+        String[] flowToFormula = new String[this.primitiveTree.nodes.size()];
         HashSet<String> fullFormula = new HashSet<String>();
-        ArrayList<ArrayList<LiftedFlow>> allConcurrentsActions = new ArrayList<>(); 
+        ArrayList<ArrayList<LiftedFlow>> allConcurrentsActions = new ArrayList<>();
         int[] dictNodeToIdxConcurrentActions = new int[this.primitiveTree.nodes.size()];
         for (int i = 0; i < this.primitiveTree.nodes.size(); i++) {
-            dictNodeToIdxConcurrentActions[i] =  -1;
+            dictNodeToIdxConcurrentActions[i] = -1;
         }
 
         // Consume all the node of the topological sort tree
@@ -1166,24 +1305,24 @@ public class LiftedTreePathEncoder {
             LiftedFlow node = this.primitiveTree.nodes.get(idxNode);
             HashSet<Integer> parentsNodeIdx = this.primitiveTree.parentsNodesIdx.get(idxNode);
             // if (parentsNodeIdx.size() == 0) {
-            //     flowToFormula[idxNode] = node.getUniqueName();
+            // flowToFormula[idxNode] = node.getUniqueName();
             // }
             // else if (parentsNodeIdx.size() == 1) {
-            //     flowToFormula[idxNode] = "(and " + node.getUniqueName() + " " + flowToFormula[parentsNodeIdx.iterator().next()] + ")";
+            // flowToFormula[idxNode] = "(and " + node.getUniqueName() + " " +
+            // flowToFormula[parentsNodeIdx.iterator().next()] + ")";
             // }
             // else {
-            //     StringBuilder formulaNode = new StringBuilder();
-            //     formulaNode.append("(and " + node.getUniqueName() + " (or ");
-            //     for (Integer idxParentNode : parentsNodeIdx) {
-            //         formulaNode.append(flowToFormula[idxParentNode] + " ");
-            //     }
-            //     formulaNode.append("))");
-            //     flowToFormula[idxNode] = formulaNode.toString();
+            // StringBuilder formulaNode = new StringBuilder();
+            // formulaNode.append("(and " + node.getUniqueName() + " (or ");
+            // for (Integer idxParentNode : parentsNodeIdx) {
+            // formulaNode.append(flowToFormula[idxParentNode] + " ");
+            // }
+            // formulaNode.append("))");
+            // flowToFormula[idxNode] = formulaNode.toString();
             // }
 
-
             // if (this.primitiveTree.childrenNodesIdx.get(idxNode).size() == 0) {
-            //     fullFormula.add(flowToFormula[idxNode]);
+            // fullFormula.add(flowToFormula[idxNode]);
             // }
 
             // Add all concurrent actions in the at most list
@@ -1232,7 +1371,7 @@ public class LiftedTreePathEncoder {
 
         // allMacroActionsPath.append("(assert (or\n");
         // for (String path : fullFormula) {
-        //     allMacroActionsPath.append(path + " \n");
+        // allMacroActionsPath.append(path + " \n");
         // }
         // allMacroActionsPath.append("))\n");
 
@@ -1243,7 +1382,6 @@ public class LiftedTreePathEncoder {
             allMacroActionsPath.append(this.primitiveTree.nodes.get(rootNode).getUniqueName() + " ");
         }
         allMacroActionsPath.append("))\n");
-
 
         allMacroActionsPath.append("; action true => one of its child action is true\n");
         Stack<Integer> topologicalSortTree2 = this.primitiveTree.getTopologicalSort();
@@ -1259,9 +1397,10 @@ public class LiftedTreePathEncoder {
 
             else if (childrenNode.size() == 1) {
                 LiftedFlow childNode = this.primitiveTree.nodes.get(childrenNode.iterator().next());
-                allMacroActionsPath.append("(assert (=> " + node.getUniqueName() + " " + childNode.getUniqueName() + "))\n");
+                allMacroActionsPath
+                        .append("(assert (=> " + node.getUniqueName() + " " + childNode.getUniqueName() + "))\n");
             }
-            
+
             else {
                 allMacroActionsPath.append("(assert (=> " + node.getUniqueName() + " (or ");
                 for (Integer idxChild : this.primitiveTree.childrenNodesIdx.get(idxNode)) {
@@ -1270,7 +1409,6 @@ public class LiftedTreePathEncoder {
                 allMacroActionsPath.append(")))\n");
             }
         }
-
 
         // Add as well the at most one action for all concurrents actions
         allMacroActionsPath.append("; at most one action\n");
@@ -1282,55 +1420,60 @@ public class LiftedTreePathEncoder {
 
             if (this.primitiveTree.parentsNodesIdx.get(idxNode).size() > 1) {
 
-                List<Integer> concurrentIdxActionList = new ArrayList<>(this.primitiveTree.parentsNodesIdx.get(idxNode));
+                List<Integer> concurrentIdxActionList = new ArrayList<>(
+                        this.primitiveTree.parentsNodesIdx.get(idxNode));
                 // All thoses actions should be mutex
                 for (int i = 0; i < concurrentIdxActionList.size(); i++) {
-                    for (int j = i+1; j < concurrentIdxActionList.size(); j++) {
+                    for (int j = i + 1; j < concurrentIdxActionList.size(); j++) {
                         int idxParentNode1 = concurrentIdxActionList.get(i);
                         int idxParentNode2 = concurrentIdxActionList.get(j);
                         int min = Math.min(idxParentNode1, idxParentNode2);
                         int max = Math.max(idxParentNode1, idxParentNode2);
                         String key = min + "_" + max;
                         if (!pairAlreadySeen.contains(key)) {
-                            allMacroActionsPath.append("(assert (or (not " + this.primitiveTree.nodes.get(min).getUniqueName() + ") (not " + this.primitiveTree.nodes.get(max).getUniqueName() + ")))\n");
+                            allMacroActionsPath
+                                    .append("(assert (or (not " + this.primitiveTree.nodes.get(min).getUniqueName()
+                                            + ") (not " + this.primitiveTree.nodes.get(max).getUniqueName() + ")))\n");
                             pairAlreadySeen.add(key);
                         }
                     }
                 }
 
-
             }
 
             if (this.primitiveTree.childrenNodesIdx.get(idxNode).size() > 1) {
 
-                List<Integer> concurrentIdxActionList = new ArrayList<>(this.primitiveTree.childrenNodesIdx.get(idxNode));
+                List<Integer> concurrentIdxActionList = new ArrayList<>(
+                        this.primitiveTree.childrenNodesIdx.get(idxNode));
                 // All thoses actions should be mutex
                 for (int i = 0; i < concurrentIdxActionList.size(); i++) {
-                    for (int j = i+1; j < concurrentIdxActionList.size(); j++) {
+                    for (int j = i + 1; j < concurrentIdxActionList.size(); j++) {
                         int idxChildNode1 = concurrentIdxActionList.get(i);
                         int idxChildNode2 = concurrentIdxActionList.get(j);
                         int min = Math.min(idxChildNode1, idxChildNode2);
                         int max = Math.max(idxChildNode1, idxChildNode2);
                         String key = min + "_" + max;
                         if (!pairAlreadySeen.contains(key)) {
-                            allMacroActionsPath.append("(assert (or (not " + this.primitiveTree.nodes.get(min).getUniqueName() + ") (not " + this.primitiveTree.nodes.get(max).getUniqueName() + ")))\n");
+                            allMacroActionsPath
+                                    .append("(assert (or (not " + this.primitiveTree.nodes.get(min).getUniqueName()
+                                            + ") (not " + this.primitiveTree.nodes.get(max).getUniqueName() + ")))\n");
                             pairAlreadySeen.add(key);
                         }
                     }
                 }
 
-
             }
 
         }
         // for (ArrayList<LiftedFlow> concurrentIdxAction : allConcurrentsActions) {
-        //     for (int i = 0; i < concurrentIdxAction.size(); i++) {
-        //         for (int j = i+1; j < concurrentIdxAction.size(); j++) {
-        //             String l1 = concurrentIdxAction.get(i).getUniqueName();
-        //             String l2 = concurrentIdxAction.get(j).getUniqueName();
-        //             allMacroActionsPath.append("(assert (or (not " + l1 + ") (not " + l2 + ")))\n");
-        //         }
-        //     }
+        // for (int i = 0; i < concurrentIdxAction.size(); i++) {
+        // for (int j = i+1; j < concurrentIdxAction.size(); j++) {
+        // String l1 = concurrentIdxAction.get(i).getUniqueName();
+        // String l2 = concurrentIdxAction.get(j).getUniqueName();
+        // allMacroActionsPath.append("(assert (or (not " + l1 + ") (not " + l2 +
+        // ")))\n");
+        // }
+        // }
         // }
 
         // Now, the question is how to write all those paths from the primitive tree
@@ -1338,11 +1481,11 @@ public class LiftedTreePathEncoder {
         // For now, just write all the path possible (TODO improve this later)
         // allMacroActionsPath.append("(assert (or\n");
         // for (List<LiftedFlow> primitivePath : this.allPrimitivesPath) {
-        //     allMacroActionsPath.append("(and ");
-        //     for (LiftedFlow primitiveFlow : primitivePath) {
-        //         allMacroActionsPath.append(primitiveFlow.getUniqueName() + " ");
-        //     }
-        //     allMacroActionsPath.append(")\n");
+        // allMacroActionsPath.append("(and ");
+        // for (LiftedFlow primitiveFlow : primitivePath) {
+        // allMacroActionsPath.append(primitiveFlow.getUniqueName() + " ");
+        // }
+        // allMacroActionsPath.append(")\n");
         // }
         // allMacroActionsPath.append("))\n");
         return allMacroActionsPath.toString();
@@ -1375,143 +1518,163 @@ public class LiftedTreePathEncoder {
         return declarationScopeVariables.toString();
     }
 
-
     private String declarationAllMacroPathPreconditions() {
 
-            StringBuilder declarationAllMacroPathPrecondition = new StringBuilder();
-    
-            // Iterate over our primitive tree in a topological way
-            Stack<Integer> topologicalSortTree = this.primitiveTree.getTopologicalSort();
-    
-            // Consume all the node of the topological sort tree
-            while (!topologicalSortTree.isEmpty()) {
-                Integer idxNode = topologicalSortTree.pop();
-                LiftedFlow node = this.primitiveTree.nodes.get(idxNode);
+        StringBuilder declarationAllMacroPathPrecondition = new StringBuilder();
 
-                if (this.layer == 4 && node.getUniqueName().equals("FLOW_drive_172")) {
-                    int a = 0;
-                }
-    
-                // Iterate over all preconditions of the node
-                for (CertifiedPredicate precondition : node.preconditionPredicates) {
-    
-                    declarationAllMacroPathPrecondition.append("; " + precondition + "\n");
-    
-                    declarationAllMacroPathPrecondition.append("(assert (=> " + node.getUniqueName() + " ");
-    
-                    // Get the solver associated with this precondition
-                    SolverPrecondition solverPred = node.preconditionSolver.get(precondition);
+        // Iterate over our primitive tree in a topological way
+        Stack<Integer> topologicalSortTree = this.primitiveTree.getTopologicalSort();
 
-                    if (solverPred.isInvariantTrue) {
-                        // We have nothing to do here
-                        declarationAllMacroPathPrecondition.append("true))\n");
-                        continue;
-                    }
-                    else if (solverPred.isStaticPrecondition) {
-                        // We just have to check the condition at the beginning
-                        if (!precondition.isPositive) {
-                            declarationAllMacroPathPrecondition.append("(not ");
-                        }
+        // Consume all the node of the topological sort tree
+        while (!topologicalSortTree.isEmpty()) {
+            Integer idxNode = topologicalSortTree.pop();
+            LiftedFlow node = this.primitiveTree.nodes.get(idxNode);
 
-                        declarationAllMacroPathPrecondition.append(" (" + precondition.predicateName + " ");
-                        for (ScopeVariable var : precondition.scope) {
-                            declarationAllMacroPathPrecondition.append(var.getUniqueName() + " ");
-                        }
-                        declarationAllMacroPathPrecondition.append(")"); // Finish function
-                        if (!precondition.isPositive) {
-                            declarationAllMacroPathPrecondition.append(")"); // Finish not
-                        }
-                        declarationAllMacroPathPrecondition.append("))\n"); // Finish assert and =>
-
-                        continue;
-                    }
-
-                    if ((solverPred.constrainsOnScope.size() > 0 || solverPred.scopeVarThatMustBeEquals.size() > 0) && solverPred.mustCheckInitValue) {
-                        declarationAllMacroPathPrecondition.append("(or ");
-                    }
-
-
-                    if (solverPred.constrainsOnScope.size() > 0) {
-                        // TODO should check the certifier !!!!
-
-                        
-                        // Add the constrains 
-                        for (ScopeVariable constrains : solverPred.constrainsOnScope) {
-                            if (constrains.getConstrains().size() > 0) {
-                                declarationAllMacroPathPrecondition.append("(or ");
-                            }
-
-                            for (ConstrainsOnScopeVariable constrainsOnScopeVariable : constrains.getConstrains()) {
-                                declarationAllMacroPathPrecondition.append("(= " + constrains.getUniqueName() + " " + constrainsOnScopeVariable.pivot.getUniqueName() + ") ");
-                            }
-                            
-                            if (constrains.getConstrains().size() > 0) {
-                                declarationAllMacroPathPrecondition.append(")"); // Finish or
-                            }
-                        }
-
-                        if (solverPred.constrainsOnScope.size() > 1) {
-                            declarationAllMacroPathPrecondition.append(")");
-                        }
-                    }
-
-                    if (solverPred.scopeVarThatMustBeEquals.size() > 0) {
-                        if (solverPred.scopeVarThatMustBeEquals.size() > 1) {
-                            declarationAllMacroPathPrecondition.append("(and ");
-                        }
-                        for (Pair<ScopeVariable, ScopeVariable> scopesThatMustBeEqual : solverPred.scopeVarThatMustBeEquals) {
-                            declarationAllMacroPathPrecondition.append("(= " + scopesThatMustBeEqual.getLeft().getUniqueName() + " " + scopesThatMustBeEqual.getRight().getUniqueName() + ") ");
-                        }
-                        if (solverPred.scopeVarThatMustBeEquals.size() > 1) {
-                            declarationAllMacroPathPrecondition.append(")"); // End or
-                        }
-                    }
-
-
-                    if (solverPred.mustCheckInitValue) {
-
-                        if (!precondition.isPositive) {
-                            declarationAllMacroPathPrecondition.append("(not ");
-                        }
-
-                        declarationAllMacroPathPrecondition.append(" (" + precondition.predicateName + " ");
-                        for (ScopeVariable var : precondition.scope) {
-                            declarationAllMacroPathPrecondition.append(var.getUniqueName() + " ");
-                        }
-                        declarationAllMacroPathPrecondition.append(")"); // Finish function
-                        if (!precondition.isPositive) {
-                            declarationAllMacroPathPrecondition.append(")"); // Finish not
-                        }
-                    }
-
-                    if (solverPred.constrainsOnScope.size() > 0 && solverPred.mustCheckInitValue) {
-                        declarationAllMacroPathPrecondition.append(")"); // Finish the or
-                    }
-
-                    declarationAllMacroPathPrecondition.append("))\n"); // Finish assert and =>
-                }
+            if (this.layer == 4 && node.getUniqueName().equals("FLOW_drive_172")) {
+                int a = 0;
             }
-    
-            return declarationAllMacroPathPrecondition.toString();
+
+            // Iterate over all preconditions of the node
+            for (CertifiedPredicate precondition : node.preconditionPredicates) {
+
+                declarationAllMacroPathPrecondition.append("; " + precondition + "\n");
+
+                declarationAllMacroPathPrecondition.append("(assert (=> " + node.getUniqueName() + " ");
+
+                // Get the solver associated with this precondition
+                SolverPrecondition solverPred = node.preconditionSolver.get(precondition);
+
+                if (solverPred.isInvariantTrue) {
+                    // We have nothing to do here
+                    declarationAllMacroPathPrecondition.append("true))\n");
+                    continue;
+                } else if (solverPred.isStaticPrecondition) {
+                    // We just have to check the condition at the beginning
+                    if (!precondition.isPositive) {
+                        declarationAllMacroPathPrecondition.append("(not ");
+                    }
+
+                    declarationAllMacroPathPrecondition.append(" (" + precondition.predicateName + " ");
+                    for (ScopeVariable var : precondition.scope) {
+                        declarationAllMacroPathPrecondition.append(var.getUniqueName() + " ");
+                    }
+                    declarationAllMacroPathPrecondition.append(")"); // Finish function
+                    if (!precondition.isPositive) {
+                        declarationAllMacroPathPrecondition.append(")"); // Finish not
+                    }
+                    declarationAllMacroPathPrecondition.append("))\n"); // Finish assert and =>
+
+                    continue;
+                }
+
+                if ((solverPred.constrainsOnScope.size() > 0 || solverPred.scopeVarThatMustBeEquals.size() > 0
+                        || solverPred.trueIfPassingByThoseFLows.size() > 0)
+                        && solverPred.mustCheckInitValue) {
+                    declarationAllMacroPathPrecondition.append("(or ");
+                }
+
+                for (LiftedFlow flowWhichGaranttPrecondition : solverPred.trueIfPassingByThoseFLows) {
+                    declarationAllMacroPathPrecondition.append(flowWhichGaranttPrecondition.getUniqueName() + " ");
+                }
+
+                if (solverPred.constrainsOnScope.size() > 0) {
+                    // TODO should check the certifier !!!!
+
+                    // Add the constrains
+                    for (ScopeVariable constrains : solverPred.constrainsOnScope) {
+                        if (constrains.getConstrains().size() > 0) {
+                            declarationAllMacroPathPrecondition.append("(or ");
+                        }
+
+                        for (ConstrainsOnScopeVariable constrainsOnScopeVariable : constrains.getConstrains()) {
+                            declarationAllMacroPathPrecondition.append("(= " + constrains.getUniqueName() + " "
+                                    + constrainsOnScopeVariable.pivot.getUniqueName() + ") ");
+                        }
+
+                        if (constrains.getConstrains().size() > 0) {
+                            declarationAllMacroPathPrecondition.append(")"); // Finish or
+                        }
+                    }
+
+                    if (solverPred.constrainsOnScope.size() > 1) {
+                        declarationAllMacroPathPrecondition.append(")");
+                    }
+                }
+
+                if (solverPred.scopeVarThatMustBeEquals.size() > 0) {
+                    if (solverPred.scopeVarThatMustBeEquals.size() > 1) {
+                        declarationAllMacroPathPrecondition.append("(and ");
+                    }
+                    for (Triple<HashSet<LiftedFlow>, ScopeVariable, ScopeVariable> scopesThatMustBeEqual : solverPred.scopeVarThatMustBeEquals) {
+                        if (!scopesThatMustBeEqual.getLeft().contains(node)) {
+
+                            if (scopesThatMustBeEqual.getLeft().size() == 1) {
+                                declarationAllMacroPathPrecondition.append("(and "
+                                        + scopesThatMustBeEqual.getLeft().iterator().next().getUniqueName() + " ");
+                            } else {
+                                declarationAllMacroPathPrecondition.append("(or ");
+                                for (LiftedFlow previousFlow : scopesThatMustBeEqual.getLeft()) {
+                                    declarationAllMacroPathPrecondition.append(previousFlow.getUniqueName() + " ");
+                                }
+                            }
+                        }
+                        declarationAllMacroPathPrecondition
+                                .append("(= " + scopesThatMustBeEqual.getMiddle().getUniqueName() + " "
+                                        + scopesThatMustBeEqual.getRight().getUniqueName() + ") ");
+
+                        if (!scopesThatMustBeEqual.getLeft().contains(node)) {
+                            declarationAllMacroPathPrecondition.append(") ");
+                        }
+                    }
+                    if (solverPred.scopeVarThatMustBeEquals.size() > 1) {
+                        declarationAllMacroPathPrecondition.append(")"); // End or
+                    }
+                }
+
+                if (solverPred.mustCheckInitValue) {
+
+                    if (!precondition.isPositive) {
+                        declarationAllMacroPathPrecondition.append("(not ");
+                    }
+
+                    declarationAllMacroPathPrecondition.append(" (" + precondition.predicateName + " ");
+                    for (ScopeVariable var : precondition.scope) {
+                        declarationAllMacroPathPrecondition.append(var.getUniqueName() + " ");
+                    }
+                    declarationAllMacroPathPrecondition.append(")"); // Finish function
+                    if (!precondition.isPositive) {
+                        declarationAllMacroPathPrecondition.append(")"); // Finish not
+                    }
+                }
+
+                if (solverPred.constrainsOnScope.size() > 0 && solverPred.mustCheckInitValue) {
+                    declarationAllMacroPathPrecondition.append(")"); // Finish the or
+                }
+
+                declarationAllMacroPathPrecondition.append("))\n"); // Finish assert and =>
+            }
         }
+
+        return declarationAllMacroPathPrecondition.toString();
+    }
 
     // private void createPrimitiveTree() {
 
-    //     this.primitiveTree.clear();
+    // this.primitiveTree.clear();
 
-    //     for (List<LiftedFlow> primitivePath : this.allPrimitivesPath) {
-    //         for (int i = 0; i < primitivePath.size(); i++) {
-    //             LiftedFlow f = primitivePath.get(i);
+    // for (List<LiftedFlow> primitivePath : this.allPrimitivesPath) {
+    // for (int i = 0; i < primitivePath.size(); i++) {
+    // LiftedFlow f = primitivePath.get(i);
 
-    //             if (i == 0) {
-    //                 this.primitiveTree.addNodeAndParentIfNotExist(f, null);
-    //             } else {
-    //                 LiftedFlow parent = primitivePath.get(i - 1);
-    //                 this.primitiveTree.addNodeAndParentIfNotExist(f, parent);
-    //             }
-    //         }
-    //     }
-    //     int a = 0;
+    // if (i == 0) {
+    // this.primitiveTree.addNodeAndParentIfNotExist(f, null);
+    // } else {
+    // LiftedFlow parent = primitivePath.get(i - 1);
+    // this.primitiveTree.addNodeAndParentIfNotExist(f, parent);
+    // }
+    // }
+    // }
+    // int a = 0;
     // }
 
     private void createPrimitiveTreeQuick() {
@@ -1529,13 +1692,14 @@ public class LiftedTreePathEncoder {
             if (!initPaths.isMethodLiftedFlow()) {
                 initPaths.isPrimitiveFlow = true;
                 poolNodesToIterate.add(initPaths);
-            }   
+            }
         }
 
         HashSet<LiftedFlow> nodesAlreadySeen = new HashSet<LiftedFlow>();
         HashSet<LiftedFlow> actionNodeNotPrimitive = new HashSet<LiftedFlow>();
 
-        // Now, try to create the tree. if we arrive to a method node. Remove all the tree until the last embrachement
+        // Now, try to create the tree. if we arrive to a method node. Remove all the
+        // tree until the last embrachement
         while (poolNodesToIterate.size() > 0) {
 
             LiftedFlow node = poolNodesToIterate.pop();
@@ -1556,7 +1720,7 @@ public class LiftedTreePathEncoder {
                 node.numberChildrenPrimitiveFlow++;
 
                 if (!nodesAlreadySeen.contains(childNode)) {
-                    // Set it as primitive flow 
+                    // Set it as primitive flow
                     childNode.isPrimitiveFlow = true;
                     // Add this node to the pool of nodes to iterate
                     poolNodesToIterate.add(childNode);
@@ -1586,7 +1750,7 @@ public class LiftedTreePathEncoder {
             }
         }
 
-        // Create our tree now 
+        // Create our tree now
         this.primitiveTree.clear();
 
         for (LiftedFlow node : this.paths) {
@@ -1610,138 +1774,6 @@ public class LiftedTreePathEncoder {
         int a = 0;
     }
 
-    private LIFTED_FAM_GROUP_UNIFIER predicatesAreInSameLiftedFamGroup(CertifiedPredicate pred1,
-            CertifiedPredicate pred2, ArrayList<String> constrainsToSuccessfullyUnify) {
-
-        // Check if this predicate is into a liftedFam
-        for (Candidate liftedFamGroup : this.liftedFamGroups) {
-            for (AtomCandidate atomCandidate : liftedFamGroup.mutexGroup) {
-                if (atomCandidate.predSymbolName.equals(pred1.predicateName)) {
-
-                    boolean canBeRepresentedByLiftedFamGroup = true;
-                    // Check if the type of each arg is also identical
-                    for (int argi = 0; argi < pred1.scope.size(); argi++) {
-                        if (!atomCandidate.candidateParent.variables.get(atomCandidate.paramsId.get(argi)).typeName
-                                .equals(pred1.scope.get(argi).getType())) {
-                            canBeRepresentedByLiftedFamGroup = false;
-                            break;
-                        }
-                    }
-                    if (!canBeRepresentedByLiftedFamGroup) {
-                        continue;
-                    }
-
-                    // We can try to unify those two predicates here
-                    // We have two cases here, either we can unify
-                    // or we can only unify only if some constrains are filled
-                    // The fourth argument indicate the values of each
-                    // argument of the certified predicate to be able to unified the two predicates
-                    return canUnifyPreds(pred2, pred1, atomCandidate, constrainsToSuccessfullyUnify);
-                    // return true;
-                    // } else {
-                    // int b = 0;
-                    // }
-                    // int a = 0;
-
-                }
-            }
-        }
-
-        return LIFTED_FAM_GROUP_UNIFIER.FAILED;
-        // return false;
-    }
-
-    public LIFTED_FAM_GROUP_UNIFIER canUnifyPreds(CertifiedPredicate pred1, CertifiedPredicate pred2,
-            AtomCandidate atomThatCanBeBound, ArrayList<String> constrainsToSuccessfullyUnify) {
-
-        HashSet<AtomVariable> varsBoundByPredicateToCheck = new HashSet<AtomVariable>();
-
-        // First bound the first predicate
-        for (int argi = 0; argi < pred1.scope.size(); argi++) {
-            AtomVariable var = atomThatCanBeBound.candidateParent.variables.get(atomThatCanBeBound.paramsId.get(argi));
-
-            // If the variable is a countedthis.objNameToUniqueId variable, it can take any value, there is no
-            // need to bound
-            if (var.isCountedVar) {
-                continue;
-            }
-
-            else if (pred1.scope.get(argi).getPossibleValueVariable().size() > 1) {
-
-                // Here we can bound the variable with the name of the scope value.
-                var.value = pred1.scope.get(argi).getUniqueName();
-                varsBoundByPredicateToCheck.add(var);
-            } else {
-                // Bound the variable
-                var.value = pred1.scope.get(argi).getPossibleValueVariable().iterator().next();
-                varsBoundByPredicateToCheck.add(var);
-            }
-        }
-
-        for (AtomCandidate atomCandidate : atomThatCanBeBound.candidateParent.mutexGroup) {
-            if (atomCandidate.predSymbolName.equals(pred2.predicateName)) {
-
-                boolean canBeRepresentedByLiftedFamGroup = true;
-                // Check if the type of each arg is also identical
-                for (int argi = 0; argi < pred2.scope.size(); argi++) {
-                    AtomVariable var = atomCandidate.candidateParent.variables.get(atomCandidate.paramsId.get(argi));
-                    if (!var.typeName.equals(pred2.scope.get(argi).getType())) {
-
-                        return LIFTED_FAM_GROUP_UNIFIER.FAILED;
-                    }
-                    // Bound the variable
-                    if (var.isCountedVar) {
-                        continue;
-                    } else if (pred2.scope.get(argi).getPossibleValueVariable().size() > 1) {
-                        String valueOutputCertifiedPredArgi = pred2.scope.get(argi).getUniqueName();
-                        // Check if the variable is correctly bound by the predicate to check
-                        if (var.value != null && var.value.equals(valueOutputCertifiedPredArgi)) {
-                            // It's correct here, we can continue
-                            continue;
-                        } else {
-                            // The var is bound to another value... We need to indicate the constrains here
-                            constrainsToSuccessfullyUnify.set(argi, var.value);
-                            canBeRepresentedByLiftedFamGroup = false;
-                            // break;
-                        }
-                    } else {
-                        String valueOutputCertifiedPredArgi = pred2.scope.get(argi).getPossibleValueVariable()
-                                .iterator().next();
-                        // Check if the variable is correctly bound by the predicate to check
-                        if (var.value != null && var.value.equals(valueOutputCertifiedPredArgi)) {
-                            // It's correct here, we can continue
-                            continue;
-                        } else {
-                            // The var is bound to another value... No correct here
-                            constrainsToSuccessfullyUnify.set(argi, var.value);
-                            canBeRepresentedByLiftedFamGroup = false;
-                            // break;
-                        }
-                    }
-
-                }
-                // Else, it means that we already have a predicate of the lifted fam ground in
-                // output
-                // Clean the variable
-                for (AtomVariable varBound : varsBoundByPredicateToCheck) {
-                    varBound.value = null;
-                }
-
-                if (canBeRepresentedByLiftedFamGroup) {
-                    return LIFTED_FAM_GROUP_UNIFIER.SUCCESS;
-                } else {
-                    return LIFTED_FAM_GROUP_UNIFIER.SUCCESS_WITH_CONSTRAINS;
-                }
-            }
-        }
-
-        // Clean the variables
-        for (AtomVariable varBound : varsBoundByPredicateToCheck) {
-            varBound.value = null;
-        }
-        return LIFTED_FAM_GROUP_UNIFIER.FAILED;
-    }
-
     /**
      * Indicate for each LiftedFlow of the primitive tree, the set of the
      * predicates that it know the value as well as the set of the predicates
@@ -1752,10 +1784,15 @@ public class LiftedTreePathEncoder {
 
         System.out.println("Compute input and output certified predicates...\n");
 
-
         // Not sure we have to do this
         for (LiftedFlow f : this.primitiveTree.nodes) {
             f.cleanAllConstrainsScope();
+        }
+
+        // Indicate all the roots nodes
+        for (Integer idxRootNode : this.primitiveTree.rootNodesIdx) {
+            LiftedFlow node = this.primitiveTree.nodes.get(idxRootNode);
+            node.rootsNodesWhichCanLedToThisFlow.add(node);
         }
 
         // Get the topological sort of the primitive tree to iterate over it
@@ -1774,21 +1811,22 @@ public class LiftedTreePathEncoder {
             node.outputCertifiedPredicates.clear();
             // Clean all the constrains as well (not sure we must do this ?)
 
-
-
             System.out.println("==========");
             System.out.println("For node: " + node);
 
-            // if (node.getUniqueName().equals("FLOW_drive_229") || node.getUniqueName().equals("FLOW_drive_175")) {
-            //     int a = 0;
+            // if (node.getUniqueName().equals("FLOW_drive_229") ||
+            // node.getUniqueName().equals("FLOW_drive_175")) {
+            // int a = 0;
             // }
 
-            // if (node.getUniqueName().equals("FLOW_drive_146") || node.getUniqueName().equals("FLOW_drive_98")) {
-            //     int a = 0;
+            // if (node.getUniqueName().equals("FLOW_drive_146") ||
+            // node.getUniqueName().equals("FLOW_drive_98")) {
+            // int a = 0;
             // }
 
-            // if (layer == 2 && (node.getUniqueName().equals("FLOW_noop_68") || node.getUniqueName().equals("FLOW_noop_29"))) {
-            //     int a = 0;
+            // if (layer == 2 && (node.getUniqueName().equals("FLOW_noop_68") ||
+            // node.getUniqueName().equals("FLOW_noop_29"))) {
+            // int a = 0;
             // }
 
             // TODO There is no need to clear this one
@@ -1797,27 +1835,34 @@ public class LiftedTreePathEncoder {
             // Get the parents of the certified predicate
             HashSet<LiftedFlow> parentsNode = this.primitiveTree.getParents(idxNode);
 
+            // Can be done only once...
+            // Find the precondition of the action and the predicate which will be sure will
+            // be true after this action is effectued
+            node.computePreconditionsAndDefaultOutputCertifiedPredicates2(this.staticPredicates, this.liftedFamGroups, this.dictPairPredicateNameToLiftedFamGroups, this.dictConstantToScopeVariable);
+
+            // Will be useful to determinate how to resolve some precondition of an action
+            node.getAllRootsNodeThatCanLedToThisFlowFromParents(parentsNode);
+
             // Compute the input certified predicates (predicate which we are sure are
             // true before the action is called)
             node.computeInputCertifiedPredicatesFromParents(parentsNode);
 
             // Compute the predicate which are genrated with the precondition
             // TODO There is no need to regenerate them
-            node.computePredicatesFromPreconditions();
-
-            // node.findAllConstrainsOnScopeVar(this.staticPredicates, this.liftedFamGroups);
-
+            // node.computePredicatesFromPreconditions(this.staticPredicates,
+            // this.liftedFamGroups);
 
             node.determinateHowToResolvePreconditions(this.staticPredicates, this.liftedFamGroups);
 
-            // Compute the output certified predicates of the action (predicate
-            // which we are sure are true after the action is called)
-            node.computeOutputCertifiedPredicates(this.staticPredicates, this.liftedFamGroups);
+            // Update the output certified predicates of the action (predicate
+            // which we are sure are true after the action is called in function of the
+            // input certified predicate that we have)
+            node.updateOutputCertifiedPredicateWithCertifiedInputPredicate(this.staticPredicates, this.liftedFamGroups, this.dictPairPredicateNameToLiftedFamGroups);
 
             // for (CertifiedPredicate precondition : node.preconditionSolver.keySet()) {
-            //     System.out.println("To solve: ");
-            //     System.out.println(precondition);
-            //     System.out.println(node.preconditionSolver.get(precondition));
+            // System.out.println("To solve: ");
+            // System.out.println(precondition);
+            // System.out.println(node.preconditionSolver.get(precondition));
             // }
 
             if (this.layer == 4) {
@@ -1829,24 +1874,27 @@ public class LiftedTreePathEncoder {
         }
 
         // Some test
-        // Stack<Integer> topologicalSortTree2 = this.primitiveTree.getTopologicalSort();
+        // Stack<Integer> topologicalSortTree2 =
+        // this.primitiveTree.getTopologicalSort();
         // while (!topologicalSortTree2.isEmpty()) {
-        //     Integer idxNode = topologicalSortTree2.pop();
-        //     LiftedFlow node = this.primitiveTree.nodes.get(idxNode);
-        //     for (ScopeVariable sv : node.getScopeVariablesActionsFlow().get(0)) {
-        //         if (sv.constrains.size() != 0) {
-        //             for (ScopeVariable con : sv.constrains.keySet()) {
-        //                 System.out.println(sv.getUniqueName() + " == " + con.getUniqueName() + " => ");
-        //                 for (Pair<ScopeVariable, ScopeVariable> pair : sv.constrains.get(con)) {
-        //                     System.out.println(pair.getLeft().getUniqueName() + " = " + pair.getRight().getUniqueName() + " | ");
-        //                 }
-                        
-        //             }
-        //         }
-        //     }
-        //     int a = 0;
+        // Integer idxNode = topologicalSortTree2.pop();
+        // LiftedFlow node = this.primitiveTree.nodes.get(idxNode);
+        // for (ScopeVariable sv : node.getScopeVariablesActionsFlow().get(0)) {
+        // if (sv.constrains.size() != 0) {
+        // for (ScopeVariable con : sv.constrains.keySet()) {
+        // System.out.println(sv.getUniqueName() + " == " + con.getUniqueName() + " =>
+        // ");
+        // for (Pair<ScopeVariable, ScopeVariable> pair : sv.constrains.get(con)) {
+        // System.out.println(pair.getLeft().getUniqueName() + " = " +
+        // pair.getRight().getUniqueName() + " | ");
         // }
-        int b= 0;
+
+        // }
+        // }
+        // }
+        // int a = 0;
+        // }
+        int b = 0;
     }
 
     private void preprocessing() {
@@ -1888,12 +1936,27 @@ public class LiftedTreePathEncoder {
             String nameAction = actionObj.getName().getValue();
             this.actionNameToObj.put(nameAction, actionObj);
         }
+        // Add as well a blank action (which can be usefull for method with no subtasks)
+        // this.actionNameToObj.put("BLANK_ACTION", new ParsedAction(new
+        // Symbol<String>(SymbolType.ACTION, ), new ArrayList<TypedSymbol<String>>(),
+        // new Expression<String>(), new Expression<String>()));
 
         // Get all the static predicates
         this.staticPredicates = preprocessingComputeStaticPredicates(problem);
 
         // Create a map from the name of an object to its type
         this.dictObjNameToType = preprocessingComputeDictObjectNameToType(problem);
+
+        // Create a special scope variable for each object if the object is alone (constant)
+        this.dictConstantToScopeVariable = new HashMap<String, ScopeVariable>();
+        for (String objName : this.dictObjNameToType.keySet()) {
+            ScopeVariable sv = new ScopeVariable();
+            sv.addTypeVariable(this.dictObjNameToType.get(objName));
+            sv.addValueToScope(objName);
+            this.dictConstantToScopeVariable.put(objName, sv);
+        }
+
+
     }
 
     private HashSet<String> preprocessingComputeStaticPredicates(Problem problem) {

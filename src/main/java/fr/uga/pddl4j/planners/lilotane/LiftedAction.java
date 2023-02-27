@@ -17,6 +17,7 @@ public class LiftedAction {
     private int idAction = LiftedAction.id++;
 
     boolean isNoopAction = false;
+    boolean noNeedForPreconditionAndEffect = false;
 
     private int layer;
     private int layerElement;
@@ -39,6 +40,9 @@ public class LiftedAction {
         this.parentMethod = other.parentMethod;
         this.layer = other.layer;
         this.layerElement = other.layerElement;
+
+        // The parent action has already declared the precondition and effect of the action
+        this.noNeedForPreconditionAndEffect = true;
     }
 
     // Special blank action used when a method does not have any subtasks
@@ -51,6 +55,11 @@ public class LiftedAction {
         this.parentMethod = parentMethod;
         this.layer = layer;
         this.layerElement = layerElement;
+    }
+
+    public boolean preconditionsAndEffectsAreAlreadyDeclared() {
+        return this.noNeedForPreconditionAndEffect;
+        // return false;
     }
 
     public String getName() {
