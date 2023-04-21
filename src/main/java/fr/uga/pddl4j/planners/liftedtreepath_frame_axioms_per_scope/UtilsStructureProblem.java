@@ -204,6 +204,9 @@ public class UtilsStructureProblem {
 
             // Get all the combinations of objects for each value
             ArrayList<ArrayList<String>> valuesCombinations = UtilsStructureProblem.getAllPossibleCombinaisons(valuesObjects);
+            if (valuesCombinations.size() == 0) {
+                valuesCombinations.add(new ArrayList<String>());
+            }
 
             HashSet<String> predicatesAlreadySeen = new HashSet<String>();
 
@@ -629,7 +632,7 @@ public class UtilsStructureProblem {
         for (ParsedAction action : problem.getParsedProblem().getActions()) {
 
             // If the action only have one effect, check if this effect affect the predicate
-            if (action.getEffects().getSymbol() != null && action.getEffects().getSymbol().equals(predicateToCheck)) {
+            if (action.getEffects().getSymbol() != null && action.getEffects().getSymbol().getValue().equals(predicateToCheck)) {
                 return false;
             }
 
@@ -676,6 +679,11 @@ public class UtilsStructureProblem {
 
                     int idPredicate = UtilsStructureProblem.getPredicateID(predToGround.predicateName, params);
                     SASPredicate sasPredicate = UtilsStructureProblem.predicatesSAS[idPredicate];
+
+                    if (sasPredicate.cliques.size() == 0) {
+                        // Nothing to do here
+                        continue;
+                    }
                     
                     // Check if this predicate is into one (or multiple cliques)
                     ruleToReturn.append("(assert (=> " + predToGround.toSmt(timeStep) + " (and ");
@@ -755,10 +763,16 @@ public class UtilsStructureProblem {
 
                 SASPredicate sasPredicate = UtilsStructureProblem.predicatesSAS[idPredicate];
 
-                if (LiftedTreePathConfig.useSASPlusEncoding) {
-                    
-                    // Check if this predicate is into one (or multiple cliques)
-                    ruleToReturn.append(") (=> " + predToGround.toSmt(timeStep) + " (and ");
+                if (LiftedTreePathConfig.useSASPlusEncoding && sasPredicate.cliques.size() > 0) {
+
+                    if (predToGround.isPositive) {
+                        // Check if this predicate is into one (or multiple cliques)
+                        ruleToReturn.append(") (= " + predToGround.toSmt(timeStep) + " (and ");
+                    } else {
+                        // If the predicate is negative, we need to clean all the bits of the cliques of the predicate (set them to 0)
+                        // Since, we will have in the effect 
+                        ruleToReturn.append(") (= " + predToGround.toSmt(timeStep) + " (or ");
+                    }
 
                     // Iterate over all the cliques of this predicate
                     for (int cliqueIdx = 0; cliqueIdx < sasPredicate.cliques.size(); cliqueIdx++) {
@@ -774,6 +788,12 @@ public class UtilsStructureProblem {
 
                         // With that, we can get the representation of the predicate in the clique
                         ArrayList<Boolean> valueBitsToRepresentPredInClique = UtilsStructureProblem.getBinaryValueOfPredicateInClique(cliqueID, nbVarInClique, valueInClique);
+                        if (!predToGround.isPositive) {
+                            // Set all the bits to true
+                            for (int i = 0; i < valueBitsToRepresentPredInClique.size(); i++) {
+                                valueBitsToRepresentPredInClique.set(i, true);
+                            }
+                        }
 
                         if (useLastTimeStepPredicateDefined) {
                             // Get the last time that the clique containing this predicate was defined
@@ -1100,12 +1120,14 @@ public class UtilsStructureProblem {
     public static String generateFrameAxiomsForPredicatesWithSASPlus(HashMap<Integer, ArrayList<Pair<LiftedFlow, CertifiedPredicate>>> allPredicateWhichHaveBeenChangedForThisTimeStep, int timeStep, HashSet<CertifiedPredicate> pseudoFactsToDefine, HashSet<String> groundFactsToDefine, HashSet<String> cliqueBitsToDefine) {
         StringBuilder frameAxioms = new StringBuilder();
 
+        // If some predicate are not in the SAS groups, we need to add them to the frame axioms in the classical way
+        HashMap<Integer, ArrayList<Pair<LiftedFlow, CertifiedPredicate>>> allPosPredicateWhichHaveBeenChangedForThisTimeStep = new HashMap<Integer, ArrayList<Pair<LiftedFlow, CertifiedPredicate>>>();
+        HashMap<Integer, ArrayList<Pair<LiftedFlow, CertifiedPredicate>>> allNegPredicateWhichHaveBeenChangedForThisTimeStep = new HashMap<Integer, ArrayList<Pair<LiftedFlow, CertifiedPredicate>>>();
+
         HashSet<Integer> cliquesUpdated = new HashSet<Integer>();
 
         // Iterate over all predicates which may have been changed (key is the predicate id)
         for (Integer predicateId : allPredicateWhichHaveBeenChangedForThisTimeStep.keySet()) {
-
-            StringBuilder frameAxiomsOneClique = new StringBuilder();
 
             // Get the list of all the flows and the corresponding effect which may have changed this predicate
             ArrayList<Pair<LiftedFlow, CertifiedPredicate>> allFlowsAndEffWhichMayHaveChangedThisPredicate = allPredicateWhichHaveBeenChangedForThisTimeStep.get(predicateId);
@@ -1113,133 +1135,167 @@ public class UtilsStructureProblem {
             // Get all the SAS groups of this predicate
             SASPredicate predicate = UtilsStructureProblem.predicatesSAS[predicateId];
 
-            if (predicate.cliques.size() != 1) {
-                System.out.println("Error: the predicate " + predicate.fullName + " has " + predicate.cliques.size() + " cliques. NEED TO IMPLEMENT THIS CASE !");
-                System.exit(0);
-            }
+            if (predicate.cliques.size() == 0) {
+                System.out.println("Error: the predicate " + predicate.fullName + " has no cliques. NEED TO IMPLEMENT THIS CASE !");
+                // System.exit(0);
+                // Iterate over all flows and effects which may have changed this predicate
 
-            // So here, we consider that the predicate is only in one clique
-            Clique clique = predicate.cliques.get(0);
-
-            // Check if we have already generated the frame axioms for this clique
-            if (cliquesUpdated.contains(clique.id)) {
+                for (Pair<LiftedFlow, CertifiedPredicate> flowWhichMayHaveChangedPredWithEff : allFlowsAndEffWhichMayHaveChangedThisPredicate) {
+                    LiftedFlow flow = flowWhichMayHaveChangedPredWithEff.getLeft();
+                    CertifiedPredicate effect = flowWhichMayHaveChangedPredWithEff.getRight();
+                    if (effect.isPositive) {
+                        if (!allPosPredicateWhichHaveBeenChangedForThisTimeStep.containsKey(predicateId)) {
+                            allPosPredicateWhichHaveBeenChangedForThisTimeStep.put(predicateId, new ArrayList<Pair<LiftedFlow, CertifiedPredicate>>());
+                        }
+                        allPosPredicateWhichHaveBeenChangedForThisTimeStep.get(predicateId).add(flowWhichMayHaveChangedPredWithEff);
+                    } else {
+                        if (!allNegPredicateWhichHaveBeenChangedForThisTimeStep.containsKey(predicateId)) {
+                            allNegPredicateWhichHaveBeenChangedForThisTimeStep.put(predicateId, new ArrayList<Pair<LiftedFlow, CertifiedPredicate>>());
+                        }
+                        allNegPredicateWhichHaveBeenChangedForThisTimeStep.get(predicateId).add(flowWhichMayHaveChangedPredWithEff);
+                    }
+                }
+                // Go to the next predicate
                 continue;
             }
 
-            StringBuilder allFlowsAreFalse = new StringBuilder("(and ");
-            StringBuilder actionTrueAndUnificationToPreventPredicateFromBeingChanged = new StringBuilder();
 
+            if (predicate.cliques.size() > 1) {
+                int debug = 0;
+            }
 
-            // The rule of the frame axioms for a predicate P which is in a clique C is (for all actions a which may change P):
-            // (OR (not a for all a) (OR A and specific grounding of the pseudo facts which prevent P from being changed) => P next step = P last defined step
+            // Iterate over all the cliques of this predicate
+            for (int cliqueIdx = 0; cliqueIdx < predicate.cliques.size(); cliqueIdx++) {
 
-            // Iterate over all flows which may have changed this predicate
-            for (Pair<LiftedFlow, CertifiedPredicate> flowsWhichMayHaveChangedPredWithEff : allFlowsAndEffWhichMayHaveChangedThisPredicate) {
-                LiftedFlow flow = flowsWhichMayHaveChangedPredWithEff.getLeft();
-                CertifiedPredicate effect = flowsWhichMayHaveChangedPredWithEff.getRight();
-                allFlowsAreFalse.append("(not " + flow.getUniqueName() + ") ");
+                StringBuilder frameAxiomsOneClique = new StringBuilder();
 
-                // Add the effect as well 
-                // pseudoFactsToDefine.add(effect);
+                // So here, we consider that the predicate is only in one clique
+                Clique clique = predicate.cliques.get(cliqueIdx);
 
-                // Write the effect
-                // frameAxioms.append("(assert (=> " + flow.getUniqueName() + " " + effect.toSmt(timeStep) + "))\n");
-
-
-                if (clique.params.size() > 0) {
-                    actionTrueAndUnificationToPreventPredicateFromBeingChanged.append("(and " + flow.getUniqueName() + " ");
+                // Check if we have already generated the frame axioms for this clique
+                if (cliquesUpdated.contains(clique.id)) {
+                    continue;
                 }
-                
-                // Now see how this effect should be grounded to prevent the predicate from being changed
-                
-                // Confirm that the LFG of this clique has the same predicate name as the predicate
-                // if (!clique.LFG.predicateName.equals(predicate.)) {
-                //     System.out.println("Error: the predicate " + predicate.fullName + " is in the clique " + clique.id + " but the LFG of this clique has the predicate name " + clique.lfg.predicateName);
-                //     System.exit(0);
-                // }
-                Candidate LFGParentOfClique = clique.LFG;
 
-                // Iterate over all mutexGroup of this LFG to get the one with the same predicate name as the predicateb
+                StringBuilder allFlowsAreFalse = new StringBuilder("(and ");
+                StringBuilder actionTrueAndUnificationToPreventPredicateFromBeingChanged = new StringBuilder();
 
-                boolean foundMutexGroup = false;
 
-                for (AtomCandidate mutexGroup : LFGParentOfClique.mutexGroup) {
-                    if (!mutexGroup.predSymbolName.equals(predicate.predicateName)) {
-                        continue;
+                // The rule of the frame axioms for a predicate P which is in a clique C is (for all actions a which may change P):
+                // (OR (AND not a for all a) (OR A and specific grounding of the pseudo facts which prevent P from being changed) => P next step = P last defined step
+
+                // Iterate over all flows which may have changed this predicate
+                for (Pair<LiftedFlow, CertifiedPredicate> flowsWhichMayHaveChangedPredWithEff : allFlowsAndEffWhichMayHaveChangedThisPredicate) {
+                    LiftedFlow flow = flowsWhichMayHaveChangedPredWithEff.getLeft();
+                    CertifiedPredicate effect = flowsWhichMayHaveChangedPredWithEff.getRight();
+                    allFlowsAreFalse.append("(not " + flow.getUniqueName() + ") ");
+
+                    // Add the effect as well 
+                    // pseudoFactsToDefine.add(effect);
+
+                    // Write the effect
+                    // frameAxioms.append("(assert (=> " + flow.getUniqueName() + " " + effect.toSmt(timeStep) + "))\n");
+
+
+                    if (clique.params.size() > 0) {
+                        actionTrueAndUnificationToPreventPredicateFromBeingChanged.append("(and " + flow.getUniqueName() + " ");
                     }
+                    
+                    // Now see how this effect should be grounded to prevent the predicate from being changed
+                    
+                    // Confirm that the LFG of this clique has the same predicate name as the predicate
+                    // if (!clique.LFG.predicateName.equals(predicate.)) {
+                    //     System.out.println("Error: the predicate " + predicate.fullName + " is in the clique " + clique.id + " but the LFG of this clique has the predicate name " + clique.lfg.predicateName);
+                    //     System.exit(0);
+                    // }
+                    Candidate LFGParentOfClique = clique.LFG;
 
-                    foundMutexGroup = true;
-                    // Iterate over all its argument until we have a param and check which params value is taken with the clique 
-                    for (int paramIdx = 0; paramIdx < mutexGroup.paramsId.size(); paramIdx++) {
-                        Integer paramId = mutexGroup.paramsId.get(paramIdx);
-                        AtomVariable var = LFGParentOfClique.variables.get(paramId);
-                        if (var.isCountedVar) {
+                    // Iterate over all mutexGroup of this LFG to get the one with the same predicate name as the predicateb
+
+                    boolean foundMutexGroup = false;
+
+                    for (AtomCandidate mutexGroup : LFGParentOfClique.mutexGroup) {
+                        if (!mutexGroup.predSymbolName.equals(predicate.predicateName)) {
                             continue;
                         }
-                        // Get the value of this param in the clique
-                        String valueInClique = clique.params.get(var.idInAtomCandidate);
 
-                        // We must indicate that the scope of the certified predicate must be different from the value in clique
-                        // actionTrueAndUnificationToPreventPredicateFromBeingChanged.append("(not (= " + effect.scope.get(paramIdx).getUniqueName() + " " + valueInClique + ")) ");
-                        if (effect.scope.get(paramIdx).isConstant()) {
-                            if (effect.scope.get(paramIdx).getUniqueName().equals(valueInClique)) {
-                                actionTrueAndUnificationToPreventPredicateFromBeingChanged.append("false ");
-                            } else {
-                                actionTrueAndUnificationToPreventPredicateFromBeingChanged.append("true ");
+                        foundMutexGroup = true;
+                        // Iterate over all its argument until we have a param and check which params value is taken with the clique 
+                        for (int paramIdx = 0; paramIdx < mutexGroup.paramsId.size(); paramIdx++) {
+                            Integer paramId = mutexGroup.paramsId.get(paramIdx);
+                            AtomVariable var = LFGParentOfClique.variables.get(paramId);
+                            if (var.isCountedVar) {
+                                continue;
                             }
-                        } else {
-                            actionTrueAndUnificationToPreventPredicateFromBeingChanged.append("(not " + effect.scope.get(paramIdx).getUniqueName() + "__" + valueInClique + ") ");
+                            // Get the value of this param in the clique
+                            String valueInClique = clique.params.get(var.idInAtomCandidate);
+
+                            // We must indicate that the scope of the certified predicate must be different from the value in clique
+                            // actionTrueAndUnificationToPreventPredicateFromBeingChanged.append("(not (= " + effect.scope.get(paramIdx).getUniqueName() + " " + valueInClique + ")) ");
+                            if (effect.scope.get(paramIdx).isConstant()) {
+                                if (effect.scope.get(paramIdx).getUniqueName().equals(valueInClique)) {
+                                    actionTrueAndUnificationToPreventPredicateFromBeingChanged.append("false ");
+                                } else {
+                                    actionTrueAndUnificationToPreventPredicateFromBeingChanged.append("true ");
+                                }
+                            } else {
+                                actionTrueAndUnificationToPreventPredicateFromBeingChanged.append("(not " + effect.scope.get(paramIdx).getUniqueName() + "__" + valueInClique + ") ");
+                            }
+                            
                         }
-                        
                     }
+
+                    if (clique.params.size() > 0) {
+                        actionTrueAndUnificationToPreventPredicateFromBeingChanged.append(") ");
+                    }
+                    
+
+                    int b = 0;
                 }
 
-                if (clique.params.size() > 0) {
-                    actionTrueAndUnificationToPreventPredicateFromBeingChanged.append(") ");
+                allFlowsAreFalse.append(") ");
+
+                StringBuilder newValueEachBitOfClique = new StringBuilder("(and ");
+
+                // Get the number of bits used to represent this clique
+                int nbBitsToRepresentClique = clique.getNbBits();
+                // Get the last time this clique was defined
+                int lastTimeCliqueWasDefined = clique.getLastTimeCliqueWasDefined();
+
+                // Set the rule to indicate that the bit has not changed 
+                for (int i = 0; i < nbBitsToRepresentClique; i++) {
+                    String bitName = "Clique_" + clique.id + "_bit" + i + "__" + timeStep;
+                    String bitNameLastTimeCliqueWasDefined = "Clique_" + clique.id + "_bit" + i + "__" + lastTimeCliqueWasDefined;
+
+                    newValueEachBitOfClique.append("(= " + bitName + " " + bitNameLastTimeCliqueWasDefined + ") ");
+                    // groundFactsToDefine.add(bitName);
+                    cliqueBitsToDefine.add(bitName);
                 }
-                
+                newValueEachBitOfClique.append(")");
 
-                int b = 0;
+                frameAxiomsOneClique.append("(assert (=> (or " + allFlowsAreFalse.toString() + actionTrueAndUnificationToPreventPredicateFromBeingChanged.toString() + ") " + newValueEachBitOfClique.toString() + "))\n");
+
+                System.out.println("Frame axioms on predicate: " + predicate.fullName);
+                System.out.println(frameAxiomsOneClique.toString());
+
+                // Update the last time this clique was defined
+                clique.setLastTimeCliqueWasDefined(timeStep);
+
+                // Indicate that this clique has been updated
+                cliquesUpdated.add(clique.id);
+
+                // Update the frame axioms
+                frameAxioms.append("; update clique: " + clique.toString() + "\n");
+                frameAxioms.append(frameAxiomsOneClique.toString());
+                int a = 0;
             }
+        }
 
-            allFlowsAreFalse.append(") ");
-
-            StringBuilder newValueEachBitOfClique = new StringBuilder("(and ");
-
-            // Get the number of bits used to represent this clique
-            int nbBitsToRepresentClique = clique.getNbBits();
-            // Get the last time this clique was defined
-            int lastTimeCliqueWasDefined = clique.getLastTimeCliqueWasDefined();
-
-            // Set the rule to indicate that the bit has not changed 
-            for (int i = 0; i < nbBitsToRepresentClique; i++) {
-                String bitName = "Clique_" + clique.id + "_bit" + i + "__" + timeStep;
-                String bitNameLastTimeCliqueWasDefined = "Clique_" + clique.id + "_bit" + i + "__" + lastTimeCliqueWasDefined;
-
-                newValueEachBitOfClique.append("(= " + bitName + " " + bitNameLastTimeCliqueWasDefined + ") ");
-                // groundFactsToDefine.add(bitName);
-                cliqueBitsToDefine.add(bitName);
-            }
-            newValueEachBitOfClique.append(")");
-
-            frameAxiomsOneClique.append("(assert (=> (or " + allFlowsAreFalse.toString() + actionTrueAndUnificationToPreventPredicateFromBeingChanged.toString() + ") " + newValueEachBitOfClique.toString() + "))\n");
-
-            System.out.println("Frame axioms on predicate: " + predicate.fullName);
-            System.out.println(frameAxiomsOneClique.toString());
-
-            // Update the last time this clique was defined
-            clique.setLastTimeCliqueWasDefined(timeStep);
-
-            // Indicate that this clique has been updated
-            cliquesUpdated.add(clique.id);
-
-            // Update the frame axioms
-            frameAxioms.append("; update clique: " + clique.toString() + "\n");
-            frameAxioms.append(frameAxiomsOneClique.toString());
-            int a = 0;
-
-
-       }
+        if (allPosPredicateWhichHaveBeenChangedForThisTimeStep.size() > 0 || allNegPredicateWhichHaveBeenChangedForThisTimeStep.size() > 0) {
+            String classicalFrameAxioms = generateFrameAxiomsForPredicatesWithoutSASPlus(allPosPredicateWhichHaveBeenChangedForThisTimeStep, allNegPredicateWhichHaveBeenChangedForThisTimeStep, timeStep, pseudoFactsToDefine, groundFactsToDefine);
+            // Append the classical frame axioms
+            frameAxioms.append(classicalFrameAxioms);
+        }
        
        return frameAxioms.toString();
     }

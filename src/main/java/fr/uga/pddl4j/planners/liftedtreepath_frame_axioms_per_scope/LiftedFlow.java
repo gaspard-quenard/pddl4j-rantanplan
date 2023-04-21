@@ -2311,11 +2311,15 @@ public class LiftedFlow {
 
         preconditionsSMT_sb.append("(assert (=> " + this.getUniqueName() + " (and ");
 
+        boolean atLeastOnePreconditionNotStatic = false;
+
         for (CertifiedPredicate precondition : this.preconditionPredicates) {
 
             System.out.println("Node: " + this.getUniqueName() + " Precondition: " + precondition);
 
             if (precondition.predicateName.equals("=")) {
+
+                atLeastOnePreconditionNotStatic = true;
 
                 if (!precondition.isPositive) {
                     preconditionsSMT_sb.append("(not (or ");
@@ -2426,6 +2430,8 @@ public class LiftedFlow {
             }
             else {
 
+                atLeastOnePreconditionNotStatic = true;
+
                 // Get the timestep
                 int timeStep = this.stepFromRoot;
                 if (precondition.isGroundFact()) {
@@ -2471,6 +2477,10 @@ public class LiftedFlow {
             }
 
             int a = 0;
+        }
+
+        if (!atLeastOnePreconditionNotStatic) {
+            preconditionsSMT_sb.append("true");
         }
 
         preconditionsSMT_sb.append(")))\n");

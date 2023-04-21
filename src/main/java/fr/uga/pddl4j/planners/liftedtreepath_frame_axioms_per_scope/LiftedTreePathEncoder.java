@@ -147,7 +147,7 @@ public class LiftedTreePathEncoder {
         this.domainPath = domainPath;
         this.problemPath = problemPath;
 
-        this.config = new LiftedTreePathConfig(true, true, true, false);
+        this.config = new LiftedTreePathConfig(true, false, false, false);
 
         rule13PerTimeStep = new ArrayList<String>();
         frameAxiomsAndEffsPerTimeStep = new ArrayList<String>();
@@ -191,6 +191,9 @@ public class LiftedTreePathEncoder {
                 System.out.println(c.getUniqueStringRepresentation());
             }
         }
+
+
+        UtilsStructureProblem.initialize(problem, this.liftedFamGroups, this.cliques);
 
         if (LiftedTreePathConfig.simplifyEffsActionsWithSASPlus) {
             // Remove all the negative effects of an action if there is a positive effect in the same LFG than the negative effect
@@ -388,6 +391,8 @@ public class LiftedTreePathEncoder {
                                 effsActions = null;
                                 numberEffActions = 0;
                             }
+                            // The negative effect has already been removed, we do not care, if it is in the same lifted fam group than another positive effect
+                            break;
                         }
                     }
                 }
@@ -402,14 +407,6 @@ public class LiftedTreePathEncoder {
                 this.cliques.add(cliqueAsArrayList);
             }
         }
-
-
-
-
-
-
-
-        UtilsStructureProblem.initialize(problem, this.liftedFamGroups, this.cliques);
 
 
         
@@ -467,111 +464,6 @@ public class LiftedTreePathEncoder {
         // We need to iterate over all possible predicates
         UtilsStructureProblem.findAllPredicateTrueAndFalseForInitialState(problem, this.fluentsTrueInit, this.fluentsFalseInit);
         UtilsStructureProblem.findAllPredicateIdTrueAndFalseForInitialState(problem, this.fluentsIdTrueInit, this.fluentsIdFalseInit);
-
-        // Make the conversion of all the initial predicates into the lifted fam group predicates
-
-        // Should we start with the negative predicate ?
-        // BitVector initPredicatePos = problem.getInitialState().getPositiveFluents();
-
-        // for (int it1 = initPredicatePos.nextSetBit(0); it1 >= 0; it1 = initPredicatePos.nextSetBit(it1 + 1)) {
-
-        //     Fluent fluentInit = problem.getFluents().get(it1);
-        //     String prettyNameFluentInit = prettyDisplayFluent(fluentInit, problem);
-
-        //     String nameFluent =  problem.getPredicateSymbols().get(fluentInit.getSymbol());
-
-        //     // If this is a static predicate, then we don't need to do anything
-        //     if (this.staticPredicates.contains(nameFluent)) {
-        //         initPredicatePos.set(it1);
-        //         continue;
-        //     }
-
-        //     ArrayList<LFGCertifiedPredicate> liftedFamGroupPredInit = new ArrayList<>();
-
-        //     boolean findLiftedFamGroup = false;
-
-        //     // Find all the lifted fam groups which contains it
-        //     for (Candidate liftedFamGroup : this.liftedFamGroups) {
-        //         // Check if this lifted fam group can contains this predicate
-        //         for (AtomCandidate atomCandidate : liftedFamGroup.mutexGroup) {
-        //             if (!atomCandidate.predSymbolName.equals(nameFluent)) {
-        //                 continue;
-        //             }
-
-        //             // Check if the parameters of the predicate are the same
-        //             boolean isSameParam = true;
-        //             for (int i = 0; i < atomCandidate.paramsId.size(); i++) {
-        //                 String paramTypeAtomCandidate = liftedFamGroup.variables.get(atomCandidate.paramsId.get(i)).typeName;
-        //                 String paramTypeFluent = this.dictObjNameToType.get(problem.getConstantSymbols().get(fluentInit.getArguments()[i]));
-        //                 if (!paramTypeAtomCandidate.equals(paramTypeFluent)) {
-        //                     isSameParam = false;
-        //                     break;
-        //                 }
-        //             }
-        //             if (!isSameParam) {
-        //                 continue;
-        //             }
-
-        //             findLiftedFamGroup = true;
-
-        //             // Else create the certified predicate associated to this initial predicate
-        //             ArrayList<ScopeVariable> params = new ArrayList<ScopeVariable>();
-        //             ArrayList<ScopeVariable> values = new ArrayList<ScopeVariable>();
-
-        //             // Reiterate over the parameters of the lifted fam group to set param and values
-        //             for (int paramId = 0; paramId < liftedFamGroup.variables.size(); paramId++) {
-        //                 AtomVariable var = liftedFamGroup.variables.get(paramId);
-        //                 // Check if the atom candidate contains this variable
-        //                 if (atomCandidate.paramsId.contains(paramId)) {
-        //                     int idxParam = atomCandidate.paramsId.indexOf(paramId);
-        //                     // Get the object associated to this parameter
-        //                     String objName = problem.getConstantSymbols().get(fluentInit.getArguments()[idxParam]);
-        //                     String typeObj = this.dictObjNameToType.get(objName);
-        //                     // Create the scope variable
-        //                     ScopeVariable scopeVar = new ScopeVariable();
-        //                     scopeVar.addTypeVariable(typeObj);
-        //                     scopeVar.addValueToScope(objName);
-
-        //                     // Add it into the param if it is not a counted variable
-        //                     // If it is a counted variable, then add it into the values
-        //                     if (var.isCountedVar) {
-        //                         values.add(scopeVar);
-        //                     } else {
-        //                         params.add(scopeVar);
-        //                     }
-        //                 } else {
-        //                     // Add null into the param if it is not a counted variable
-        //                     // If it is a counted variable, then add it into the values
-        //                     if (var.isCountedVar) {
-        //                         values.add(null);
-        //                     } else {
-        //                         params.add(null);
-        //                     }
-        //                 }
-        //             }
-
-        //             // Create our lifted fam group predicate
-        //             LFGCertifiedPredicate lfgCertifiedPredicate = new LFGCertifiedPredicate(0, liftedFamGroup, true, params, values);
-        //             // Add it into the list of lifted fam group predicate
-        //             liftedFamGroupPredInit.add(lfgCertifiedPredicate);
-        //             System.out.println("Conversion from predicate: " + prettyNameFluentInit + " to " + lfgCertifiedPredicate);
-        //             break;
-        //         }
-        //     }
-
-        //     // if (!findLiftedFamGroup) {
-        //     //     // TODO add a special lifted fam group in this case where all arguments are Vi and there are no values
-        //     //     System.out.println("Cannot find a lifted fam group for predicate: " + prettyNameFluentInit);
-        //     //     System.exit(1);
-        //     // }
-
-        //     // Replace the inital predicate with the lifted fam group predicate
-
-        //     // Add this initial predicate into our init state
-        //     // int a = 0;
-
-        //     initPredicatePos.set(it1);
-        // }
 
         this.initDefinerPredicates = preprocessingFindAllInitDefinerPredicate();
 
@@ -633,7 +525,7 @@ public class LiftedTreePathEncoder {
         showAllPaths();
 
         // Now, we have all our initial paths
-        int layerMax = 10;
+        int layerMax = 4;
         while (layer <= layerMax) {
 
             System.out.println("==================");
@@ -1522,10 +1414,20 @@ public class LiftedTreePathEncoder {
                 // Check if this fluent is into one or multiple clique
                 SASPredicate predicate = UtilsStructureProblem.predicatesSAS[fluentIdTrueInit];
                 if (predicate == null) {
-                    System.out.println("TO SEE LATER !");
+                    System.out.println("PROBLEM HERE !");
                     System.exit(1);
                 }
                 initialPredicates.append("; define " + predicate.fullName + "\n");
+
+                if (predicate.cliques.size() == 0) {
+                    // We will treat this predicate as a normal predicate
+                    String predicateFullNameAndTImeStep = predicate.fullName + "__0";
+                    if (!this.groundFactsToDefine.contains(predicateFullNameAndTImeStep)) {
+                        initialPredicates.append("(declare-const " + predicate.fullName + "__0 Bool)\n");
+                    }
+                    initialPredicates.append("(assert (= " + predicate.fullName + "__0 true))\n");
+                }
+
                 // Iterate over all the clique that this predicate is into
                 for (int cliqueIdx = 0; cliqueIdx < predicate.cliques.size(); cliqueIdx++) {
 
@@ -1534,6 +1436,13 @@ public class LiftedTreePathEncoder {
 
                     // Get the clique ID
                     int cliqueId = clique.id;
+
+                    // Check that this clique is defined somewhere. If it not the case, there is no need to encode the initial value of the clique
+                    String bit0Clique = "Clique_" + cliqueId + "_bit0__0";
+
+                    if (!this.cliqueBitsToDefine.contains(bit0Clique)) {
+                        continue;
+                    }
 
                     // Get the number of variables in this clique
                     int nbVariablesInClique = clique.numberValues;
@@ -1551,8 +1460,16 @@ public class LiftedTreePathEncoder {
                 // Check if this fluent is into one or multiple clique
                 SASPredicate predicate = UtilsStructureProblem.predicatesSAS[fluentIdFalseInit];
                 if (predicate == null) {
-                    System.out.println("Predicate false init not defined ! TO SEE LATER !");
+                    System.out.println("PROBLEM HERE !");
                     System.exit(1);
+                }
+                if (predicate.cliques.size() == 0) {
+                    // We will treat this predicate as a normal predicate
+                    String predicateFullNameAndTImeStep = predicate.fullName + "__0";
+                    if (!this.groundFactsToDefine.contains(predicateFullNameAndTImeStep)) {
+                        initialPredicates.append("(declare-const " + predicate.fullName + "__0 Bool)\n");
+                    }
+                    initialPredicates.append("(assert (= " + predicate.fullName + "__0 false))\n");
                 }
             }   
         } else {
@@ -2074,29 +1991,6 @@ public class LiftedTreePathEncoder {
             }
 
         }
-        // for (ArrayList<LiftedFlow> concurrentIdxAction : allConcurrentsActions) {
-        // for (int i = 0; i < concurrentIdxAction.size(); i++) {
-        // for (int j = i+1; j < concurrentIdxAction.size(); j++) {
-        // String l1 = concurrentIdxAction.get(i).getUniqueName();
-        // String l2 = concurrentIdxAction.get(j).getUniqueName();
-        // allMacroActionsPath.append("(assert (or (not " + l1 + ") (not " + l2 +
-        // ")))\n");
-        // }
-        // }
-        // }
-
-        // Now, the question is how to write all those paths from the primitive tree
-
-        // For now, just write all the path possible (TODO improve this later)
-        // allMacroActionsPath.append("(assert (or\n");
-        // for (List<LiftedFlow> primitivePath : this.allPrimitivesPath) {
-        // allMacroActionsPath.append("(and ");
-        // for (LiftedFlow primitiveFlow : primitivePath) {
-        // allMacroActionsPath.append(primitiveFlow.getUniqueName() + " ");
-        // }
-        // allMacroActionsPath.append(")\n");
-        // }
-        // allMacroActionsPath.append("))\n");
         return allMacroActionsPath.toString();
     }
 
@@ -2427,6 +2321,9 @@ public class LiftedTreePathEncoder {
                 
                 if (LiftedTreePathConfig.useSASPlusEncoding) {
                     allEffsAndFrameAxioms = UtilsStructureProblem.generateFrameAxiomsForPredicatesWithSASPlus(allPosPredicateWhichCanBeChangedByActionOfThisTimeStep, stepFromRoot + 1, pseudoFactTimeStep, groundPredTimeStep, this.cliqueBitsToDefine);
+                    String test = UtilsStructureProblem.generateFrameAxiomsForPredicatesWithSASPlus(allNegPredicateWhichCanBeChangedByActionOfThisTimeStep, stepFromRoot + 1, pseudoFactTimeStep, groundPredTimeStep, this.cliqueBitsToDefine);
+                    allEffsAndFrameAxioms += test;
+                    int c = 0;
                 } else {
                     allEffsAndFrameAxioms = UtilsStructureProblem.generateFrameAxiomsForPredicatesWithoutSASPlus(allPosPredicateWhichCanBeChangedByActionOfThisTimeStep, allNegPredicateWhichCanBeChangedByActionOfThisTimeStep, stepFromRoot + 1, pseudoFactTimeStep, this.groundFactsToDefine);
                 } 
